@@ -5,6 +5,18 @@
 (define (union . sets)
   (reverse (set->list (apply set-union (map list->set sets)))))
 
+;;; Memoization
+
+(define (memo fn)
+  (let ((alist '()))
+    (lambda args
+      (let ((entry (assoc args alist)))
+        (if entry
+            (cdr entry)
+            (let ((result (apply fn args)))
+              (set! alist (cons (cons args result) alist))
+              result))))))
+
 ;;; Parser combinators
 
 (define-syntax-rule (terminal X ...)
@@ -58,6 +70,15 @@
 (define VP
   (alt (seq V NP)
        (seq V S)))
+
+;;; Memoize
+
+(set! DET (memo DET))
+(set! N (memo N))
+(set! NP (memo NP))
+(set! V (memo V))
+(set! S (memo S))
+(set! VP (memo VP))
 
 ;;; Test
 
