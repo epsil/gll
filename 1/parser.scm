@@ -19,20 +19,36 @@
 
 ;;; Parser combinators
 
-(define-syntax-rule (terminal X ...)
+(define-syntax-rule (define-parser parser body ...)
+  (define parser
+    (memo
+     (lambda (p)
+       (map (lambda (r)
+              (cons (cons 'parser (cdr (car r)))
+                    (cdr r)))
+            ((begin body ...) p))))))
+
+(define-syntax-rule (term X ...)
   (memo
    (lambda (p)
      (if (and (pair? p)
               (member (car p) '(X ...)))
-         (list (cdr p))
+         (list (cons (list 'term (car p)) (cdr p)))
          '()))))
 
 (define-syntax-rule (seq A ...)
   (memo
    (lambda (p)
      (foldl (lambda (fn v)
-              (foldl union '() (map fn v)))
-            (list p)
+              (foldl union '()
+                     (map (lambda (prev)
+                            (map (lambda (next)
+                                   (cons (append (car prev)
+                                                 (list (car next)))
+                                         (cdr next)))
+                                 (fn (cdr prev))))
+                          v)))
+            (list (cons '(seq) p))
             (list A ...)))))
 
 (define-syntax-rule (alt A ...)
@@ -44,34 +60,33 @@
             (list A ...)))))
 
 (define-syntax-rule (opt A)
-  (memo (alt epsilon A)))
+  (alt epsilon A))
 
 (define-syntax-rule (k* A)
-  (memo
-   (alt epsilon
-        (seq A (k* A)))))
+  (alt epsilon
+       (seq A (k* A))))
 
 ;;; Parsers
 
 (define epsilon list)
 
 ;; article
-(define DET (terminal the a))
+(define-parser DET (term the a))
 
 ;; noun
-(define N (terminal student professor cat class))
+(define-parser N (term student professor cat class))
 
 ;; noun phrase
-(define NP (seq DET N))
+(define-parser NP (seq DET N))
 
 ;; verb
-(define V (terminal studies lectures eats sleeps))
+(define-parser V (term studies lectures eats sleeps))
 
 ;; sentence
-(define S (seq NP VP))
+(define-parser S (seq NP VP))
 
 ;; verb phrase: VP -> V NP | V S
-(define VP
+(define-parser VP
   (alt (seq V NP)
        (seq V S)))
 
