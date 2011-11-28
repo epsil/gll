@@ -51,17 +51,17 @@
             (c (cons (cons 'parser
                            (if (and (pair? result)
                                     (member (car result)
-                                            '(seq terminal)))
+                                            '(seq term)))
                                (cdr result)
                                (list result)))
                      tail)))))))))
 
-(define-syntax-rule (terminal X ...)
+(define-syntax-rule (term X ...)
   (memo
    (lambda (in c)
      (when (and (pair? in)
                 (member (car in) '(X ...)))
-       (c (cons (list 'terminal (car in)) (cdr in)))))))
+       (c (cons (list 'term (car in)) (cdr in)))))))
 
 (define-syntax-rule (seq A ...)
   (memo
@@ -99,27 +99,37 @@
 (define (epsilon in c)
   (c (cons '() in)))
 
-;; article
-(define-parser DET (terminal the a))
+(define-parser noun
+  (term student professor cat class))
 
-;; noun
-(define-parser N (terminal student professor cat class))
+(define-parser verb
+  (term studies lectures eats sleeps))
 
-;; noun phrase
-(define-parser NP (seq DET N))
+(define-parser article
+  (term the a an))
 
-;; verb
-(define-parser V (terminal studies lectures eats sleeps))
+(define-parser sentence
+  (seq noun-phrase verb-phrase))
 
-;; sentence
-(define-parser S (seq NP VP))
+(define-parser verb-phrase
+  (alt (seq verb-phrase prep-phrase)
+       verb))
 
-;; verb phrase: VP -> V NP | V S
-(define-parser VP
-  (alt (seq V NP)
-       (seq V S)))
+(define-parser simple-noun-phrase
+  (seq article noun))
 
-;;; Test
+(define-parser noun-phrase
+  (alt (seq noun-phrase prep-phrase)
+       simple-noun-phrase))
 
-(S '(the professor lectures the student))
-(S '(the student studies the cat intently))
+(define-parser preposition
+  (term for to in by with))
+
+(define-parser prep-phrase
+  (seq preposition noun-phrase))
+
+;;; Tests
+
+(sentence '(the student with the cat sleeps in the class))
+(sentence '(the professor lectures to the student with the cat))
+(sentence '(the professor lectures to the student in the class with the cat))
