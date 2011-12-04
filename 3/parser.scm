@@ -135,6 +135,126 @@
 (define (epsilon arg trampoline continuation)
   (continuation (cons '() arg)))
 
+;;; Grammars
+
+;; expr ::= expr op expr
+;;       |  num
+;;  num ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+;;   op ::= + | -
+(define-parser expr
+  (alt (seq expr op expr)
+       num))
+
+(define-parser num
+  (term 0 1 2 3 4 5 6 7 8 9))
+
+(define-parser op
+  (term + -))
+
+(expr '(1 + 2 + 3))
+
+;; R: S ::= a S
+;;       |  a
+;;       |  epsilon
+(define-parser R:S
+  (alt (seq (term a) R:S)
+       (term a)
+       epsilon))
+
+(R:S '(a a a))
+
+;; R*: S ::= A S a
+;;        |  a
+;;     A ::= epsilon
+(define-parser R*:S
+  (alt (seq R*:A R*:S (term a))
+       (term a)))
+
+(define-parser R*:A
+  epsilon)
+
+(R*:S '(a a a))
+
+;; L: S ::= S a
+;;       |  a
+(define-parser L:S
+  (alt (seq L:S (term a))
+       (term a)))
+
+(L:S '(a a a))
+
+;; L0: S ::= A S d
+;;        |  B s
+;;        |  epsilon
+;;     A ::= a
+;;        |  c
+;;     B ::= a
+;;        |  b
+(define-parser L0:S
+  (alt (seq L0:A L0:S (term d))
+       (seq L0:B L0:S)
+       epsilon))
+
+(define-parser L0:A
+  (alt (term a)
+       (term c)))
+
+(define-parser L0:B
+  (alt (term a)
+       (term b)))
+
+(L0:S '(a a a))
+
+;; L1: S ::= C a
+;;        |  d
+;;     B ::= epsilon
+;;        |  a
+;;     C ::= b
+;;        |  B C b
+(define-parser L1:S
+  (alt (seq L1:C (term a))
+       (term d)))
+
+(define-parser L1:B
+  (alt epsilon
+       (term a)))
+
+(define-parser L1:C
+  (alt (term b)
+       (seq L1:B L1:C (term b))
+       (seq (term b) (term b))))
+
+(L1:S '(b a))
+
+;; L2: S ::= S S S
+;;        |  S S
+;;        |  a
+(define-parser L2:S
+  (alt (term b)
+       (seq L2:S L2:S)
+       (seq L2:S L2:S L2:S)))
+
+(L2:S '(b b b))
+
+;; without any semantic rules (such as string concatenation),
+;; the number of matches for this grammar is exponential
+(L2:S '(b b b b b b b))
+
+;; L2*: S ::= b
+;;         |  S S A
+;;      A ::= S
+;;         |  epsilon
+(define-parser L2*:S
+  (alt (term b)
+       (seq L2*:S L2*:S L2*:A)))
+
+(define-parser L2*:A
+  (alt L2*:S
+       epsilon))
+
+(L2*:S '(b b b))
+
+;; SICP
 (define-parser noun
   (term student professor cat class))
 
@@ -163,17 +283,6 @@
 
 (define-parser prep-phrase
   (seq preposition noun-phrase))
-
-(define-parser S
-  (alt (seq S A)
-       A))
-
-(define-parser A
-  (term a))
-
-;;; Tests
-
-(S '(a a a))
 
 (sentence '(the student with the cat sleeps in the class))
 (sentence '(the professor lectures to the student with the cat))
