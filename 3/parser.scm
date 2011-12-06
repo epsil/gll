@@ -77,8 +77,8 @@
                  (trampoline (new trampoline%))
                  (continuation
                   (lambda (result)
-                    (when (null? (cdr result))
-                      (set! results (mcons result results)))))
+                    (when (string=? "" (cdr result))
+                      (set! results (mcons (car result) results)))))
                  (compute
                   (lambda ()
                     (when (send trampoline has-next)
@@ -94,7 +94,7 @@
            (parser arg trampoline continuation)
            (compute))))
        (else
-        ((begin body ...)
+        ((implicit-convert (begin body ...))
          arg
          trampoline
          (lambda (r)
@@ -105,7 +105,7 @@
                           (cond
                            ((null? result)
                             result)
-                           ((and (pair? result)
+                           ((and (list? result)
                                  (member (car result)
                                          '(seq term)))
                             (cdr result))
@@ -113,15 +113,23 @@
                             (list result))))
                     tail))))))))))
 
-(define-syntax-rule (term X ...)
-  (lambda (arg trampoline continuation)
-    (when (and (pair? arg)
-               (member (car arg) '(X ...)))
-      (continuation (cons (list 'term (car arg)) (cdr arg))))))
+(define (term match)
+  (let ((length (string-length match)))
+    (lambda (arg trampoline continuation)
+      (when (and (string? arg)
+                 (<= length (string-length arg))
+                 (string=? match (substring arg 0 length)))
+        (continuation
+         (cons match (substring arg length)))))))
+
+(define (implicit-convert parser)
+  (if (string? parser)
+      (term parser)
+      parser))
 
 (define-syntax-rule (seq A ...)
   (lambda (arg trampoline continuation)
-    (let* ((parsers (list A ...))
+    (let* ((parsers (map implicit-convert (list A ...)))
            (fn (car parsers))
            (cont (foldr (lambda (fn continuation)
                           (lambda (r)
@@ -142,7 +150,7 @@
 
 (define-syntax-rule (alt A ...)
   (lambda (arg trampoline continuation)
-    (for ((fn (list A ...)))
+    (for ((fn (map implicit-convert (list A ...))))
          (send trampoline push fn arg continuation))))
 
 (define-syntax-rule (opt A)
@@ -168,42 +176,43 @@
        num))
 
 (define-parser num
-  (term 0 1 2 3 4 5 6 7 8 9))
+  (alt "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"))
 
 (define-parser op
-  (term + -))
+  (alt "+" "-"))
 
-(expr '(1 + 2 + 3))
+(stream->list
+ (expr "1+2+3"))
 
 ;; R: S ::= a S
 ;;       |  a
 ;;       |  epsilon
 (define-parser R:S
-  (alt (seq (term a) R:S)
-       (term a)
+  (alt (seq "a" R:S)
+       "a"
        epsilon))
 
-(R:S '(a a a))
+(R:S "aaa")
 
 ;; R*: S ::= A S a
 ;;        |  a
 ;;     A ::= epsilon
 (define-parser R*:S
-  (alt (seq R*:A R*:S (term a))
-       (term a)))
+  (alt (seq R*:A R*:S "a")
+       "a"))
 
 (define-parser R*:A
   epsilon)
 
-(R*:S '(a a a))
+(R*:S "aaa")
 
 ;; L: S ::= S a
 ;;       |  a
 (define-parser L:S
-  (alt (seq L:S (term a))
-       (term a)))
+  (alt (seq L:S "a")
+       "a"))
 
-(L:S '(a a a))
+(L:S "aaa")
 
 ;; L0: S ::= A S d
 ;;        |  B s
@@ -213,19 +222,17 @@
 ;;     B ::= a
 ;;        |  b
 (define-parser L0:S
-  (alt (seq L0:A L0:S (term d))
+  (alt (seq L0:A L0:S "d")
        (seq L0:B L0:S)
        epsilon))
 
 (define-parser L0:A
-  (alt (term a)
-       (term c)))
+  (alt "a" "c"))
 
 (define-parser L0:B
-  (alt (term a)
-       (term b)))
+  (alt "a" "b"))
 
-(L0:S '(a a a))
+(L0:S "aaa")
 
 ;; L1: S ::= C a
 ;;        |  d
@@ -234,57 +241,57 @@
 ;;     C ::= b
 ;;        |  B C b
 (define-parser L1:S
-  (alt (seq L1:C (term a))
-       (term d)))
+  (alt (seq L1:C "a")
+       "d"))
 
 (define-parser L1:B
   (alt epsilon
-       (term a)))
+       "a"))
 
 (define-parser L1:C
-  (alt (term b)
-       (seq L1:B L1:C (term b))
-       (seq (term b) (term b))))
+  (alt "b"
+       (seq L1:B L1:C "b")
+       (seq "b" "b")))
 
-(L1:S '(b a))
+(L1:S "ba")
 
 ;; L2: S ::= S S S
 ;;        |  S S
 ;;        |  a
 (define-parser L2:S
-  (alt (term b)
+  (alt "b"
        (seq L2:S L2:S)
        (seq L2:S L2:S L2:S)))
 
-(L2:S '(b b b))
+(L2:S "bbb")
 
 ;; without any semantic rules (such as string concatenation),
 ;; the number of matches for this grammar is exponential
-(L2:S '(b b b b b b b))
+(L2:S "bbbbbbb")
 
 ;; L2*: S ::= b
 ;;         |  S S A
 ;;      A ::= S
 ;;         |  epsilon
 (define-parser L2*:S
-  (alt (term b)
+  (alt "b"
        (seq L2*:S L2*:S L2*:A)))
 
 (define-parser L2*:A
   (alt L2*:S
        epsilon))
 
-(L2*:S '(b b b))
+(L2*:S "bbb")
 
 ;; SICP
 (define-parser noun
-  (term student professor cat class))
+  (alt "student " "professor " "cat " "class "))
 
 (define-parser verb
-  (term studies lectures eats sleeps))
+  (alt "studies " "lectures " "eats " "sleeps "))
 
 (define-parser article
-  (term the a an))
+  (alt "the " "a " "an "))
 
 (define-parser sentence
   (seq noun-phrase verb-phrase))
@@ -301,11 +308,11 @@
        simple-noun-phrase))
 
 (define-parser preposition
-  (term for to in by with))
+  (alt "for " "to " "in " "by " "with "))
 
 (define-parser prep-phrase
   (seq preposition noun-phrase))
 
-(sentence '(the student with the cat sleeps in the class))
-(sentence '(the professor lectures to the student with the cat))
-(sentence '(the professor lectures to the student in the class with the cat))
+(sentence "the student with the cat sleeps in the class ")
+(sentence "the professor lectures to the student with the cat ")
+(sentence "the professor lectures to the student in the class with the cat ")
