@@ -2,6 +2,7 @@
 #lang racket
 
 (require racket/mpair)
+(require racket/stream)
 
 ;;; Trampoline
 
@@ -12,14 +13,21 @@
     (define table (mlist))
     (define stack (mlist))
 
-    ;; functions
-    (define (pop)
-      (unless (empty? stack)
-        (let* ((call (mcar stack))
+    ;; methods
+    (define/public (has-next)
+      (not (empty? stack)))
+
+    (define/public (pop)
+      (let ((call (mcar stack)))
+        (set! stack (mcdr stack))
+        call))
+
+    (define/public (step)
+      (when (has-next)
+        (let* ((call (pop))
                (fn (mcar call))
                (arg (mcdr call))
                (entry (mcdr (massoc arg (mcdr (massoc fn table))))))
-          (set! stack (mcdr stack))
           (fn arg
               this
               (lambda (result)
@@ -28,7 +36,6 @@
                   (for ((cont (mcar entry)))
                        (cont result))))))))
 
-    ;; methods
     (define/public (push fn arg continuation)
       (let ((memo (massoc fn table))
             (entry #f))
@@ -50,27 +57,42 @@
                (continuation result))))))
 
     (define/public (run)
-      (do () ((empty? stack))
-        (pop)))))
+      (do () ((not (has-next)))
+        (step)))))
 
 ;;; Parser combinators
+
+;; wtf, racket
+(define-syntax-rule (make-stream body ...)
+  (stream-rest
+   (stream-cons 'dummy
+                (begin body ...))))
 
 (define-syntax-rule (define-parser parser body ...)
   (define parser
     (lambda (arg (trampoline #f) (continuation #f))
       (cond
        ((not trampoline)
-        (let* ((results (mlist))
-               (trampoline (new trampoline%))
-               (continuation
-                (or continuation
-                    (lambda (result)
-                      (when (null? (cdr result))
-                        (set! results (mcons result results)))))))
-          (parser arg trampoline continuation)
-          (send trampoline run)
-          (unless (null? results)
-            (mlist->list results))))
+        (letrec ((results (mlist))
+                 (trampoline (new trampoline%))
+                 (continuation
+                  (lambda (result)
+                    (when (null? (cdr result))
+                      (set! results (mcons result results)))))
+                 (compute
+                  (lambda ()
+                    (when (send trampoline has-next)
+                      (do () ((or (not (empty? results))
+                                  (not (send trampoline has-next))))
+                        (send trampoline step)))
+                    (let ((stream (sequence->stream results)))
+                      (set! results (mlist))
+                      (if (send trampoline has-next)
+                          (stream-append stream (make-stream (compute)))
+                          stream)))))
+          (make-stream
+           (parser arg trampoline continuation)
+           (compute))))
        (else
         ((begin body ...)
          arg
