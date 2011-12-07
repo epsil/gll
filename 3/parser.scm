@@ -21,33 +21,27 @@
 (define trampoline%
   (class object% (super-new)
 
-    ;; fields
-    (define table (mlist))
     (define stack (mlist))
+    (define table (mlist))
 
-    ;; methods
+    ;; whether the call stack is empty
     (define/public (has-next)
       (not (empty? stack)))
 
-    (define/public (pop)
-      (let ((call (mcar stack)))
-        (set! stack (mcdr stack))
-        call))
-
+    ;; pop a call off the call stack
     (define/public (step)
       (when (has-next)
-        (let* ((call (pop))
+        (let* ((call (mcar stack))
                (fn (mcar call))
-               (arg (mcdr call))
-               (entry (mcdr (massoc arg (mcdr (massoc fn table))))))
-          (fn arg
-              this
-              (lambda (result)
-                (unless (mmember result (mcdr entry))
-                  (set-mcdr! entry (mcons result (mcdr entry)))
-                  (for ((cont (mcar entry)))
-                       (cont result))))))))
+               (args (mcdr call)))
+          (set! stack (mcdr stack))
+          (apply fn args))))
 
+    ;; push a call onto the call stack
+    (define/public (push-stack fn . args)
+      (set! stack (mappend stack (mlist (mcons fn args)))))
+
+    ;; push a parser call onto the call stack
     (define/public (push fn arg continuation)
       (let ((memo (massoc fn table))
             (entry #f))
@@ -57,17 +51,23 @@
         (set! entry (massoc arg (mcdr memo)))
         (cond
          ((not entry)
-          ;; first time function has been called with arg
           (set! entry (mcons arg (mcons (mlist continuation) (mlist))))
           (set-mcdr! memo (mcons entry (mcdr memo)))
-          (set! stack (mcons (mcons fn arg) stack)))
+          (set! entry (mcdr entry))
+          (push-stack fn arg this
+                      (lambda (result)
+                        (unless (mmember result (mcdr entry))
+                          (set-mcdr! entry (mcons result (mcdr entry)))
+                          (for ((cont (mcar entry)))
+                               (push-stack cont result))))))
          (else
           ;; function has been called with arg before
           (set! entry (mcdr entry))
-          (set-mcar! entry (mcons continuation (mcar entry)))
+          (set-mcar! entry (mappend (mcar entry) (mlist continuation)))
           (for ((result (mcdr entry)))
-               (continuation result))))))
+               (push-stack continuation result))))))
 
+    ;; run through the call stack
     (define/public (run)
       (do () ((not (has-next)))
         (step)))))
@@ -77,7 +77,7 @@
 ;; seriously, racket?
 (define-syntax-rule (make-stream body ...)
   (stream-rest
-   (stream-cons 'dummy
+   (stream-cons '()
                 (begin body ...))))
 
 (define-syntax-rule (make-parser (arg trampoline continuation) body ...)
@@ -300,8 +300,7 @@
 
 (L2:S "bbb")
 
-;; beware: without any semantic rules (like string concatenation),
-;; the number of matches for this grammar is exponential!
+;; exponential grammar
 (L2:S "bbbbbbb")
 
 ;; L2*: S ::= b
@@ -317,6 +316,23 @@
        epsilon))
 
 (L2*:S "bbb")
+
+(define-parser SS
+  (alt SS "a"))
+
+;; infinite grammar
+(stream-ref (SS "a") 2)
+
+(define-parser M:A
+  (alt M:B
+       "a"))
+
+(define-parser M:B
+  (alt M:A
+       "b"))
+
+;; infinite grammar #2
+(stream-ref (M:A "b") 0)
 
 ;; CME: A ::= B a
 ;;      B ::= C b
@@ -334,7 +350,7 @@
        CME:A
        "c"))
 
-(CME:A "cba")
+(stream->list (CME:A "cba"))
 
 ;; CME*: S ::= A
 ;;          |  B
@@ -358,30 +374,8 @@
        CME*:A
        "b"))
 
-;; endless loop!
-(CME*:S "ab")
-
-;; M: A ::= B
-;;       |  a
-;;    B ::= A
-;;          b
-(define-parser M:A
-  (alt M:B
-       "a"
-       ))
-
-(define-parser M:B
-  (alt M:A
-       "b"
-       ))
-
-;; infinite results!
-(stream-ref (M:A "a") 0)
-
-(define-parser SS
-  (alt SS "a"))
-
-(stream-ref (SS "a") 1)
+;; non-terminating grammar
+(stream-ref (CME*:S "ab") 0)
 
 ;; SICP
 (define-parser noun
