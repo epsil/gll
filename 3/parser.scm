@@ -4,6 +4,18 @@
 (require racket/mpair)
 (require racket/stream)
 
+;;; Memoization
+
+(define (memo fn)
+  (let ((alist '()))
+    (lambda args
+      (let ((entry (assoc args alist)))
+        (if entry
+            (cdr entry)
+            (let ((result (apply fn args)))
+              (set! alist (cons (cons args result) alist))
+              result))))))
+
 ;;; Trampoline
 
 (define trampoline%
@@ -62,103 +74,127 @@
 
 ;;; Parser combinators
 
-;; wtf, racket
+;; seriously, racket?
 (define-syntax-rule (make-stream body ...)
   (stream-rest
    (stream-cons 'dummy
                 (begin body ...))))
 
+(define-syntax-rule (make-parser (arg trampoline continuation) body ...)
+  (lambda (arg (trampoline #f) (continuation #f))
+    (let* ((results (if trampoline #f (mlist)))
+           (trampoline (or trampoline (new trampoline%)))
+           (continuation
+            (or continuation
+                (lambda (result)
+                  (when (string=? "" (cdr result))
+                    (set! results (mcons (car result) results)))))))
+      (letrec ((compute
+                (lambda ()
+                  (when (send trampoline has-next)
+                    (do () ((or (not (empty? results))
+                                (not (send trampoline has-next))))
+                      (send trampoline step)))
+                  (let ((stream (sequence->stream results)))
+                    (set! results (mlist))
+                    (if (send trampoline has-next)
+                        (stream-append stream (make-stream (compute)))
+                        stream)))))
+        (if results
+            (make-stream
+             (begin body ...)
+             (compute))
+            (begin body ...))))))
+
 (define-syntax-rule (define-parser parser body ...)
   (define parser
-    (lambda (arg (trampoline #f) (continuation #f))
-      (cond
-       ((not trampoline)
-        (letrec ((results (mlist))
-                 (trampoline (new trampoline%))
-                 (continuation
-                  (lambda (result)
-                    (when (string=? "" (cdr result))
-                      (set! results (mcons (car result) results)))))
-                 (compute
-                  (lambda ()
-                    (when (send trampoline has-next)
-                      (do () ((or (not (empty? results))
-                                  (not (send trampoline has-next))))
-                        (send trampoline step)))
-                    (let ((stream (sequence->stream results)))
-                      (set! results (mlist))
-                      (if (send trampoline has-next)
-                          (stream-append stream (make-stream (compute)))
-                          stream)))))
-          (make-stream
-           (parser arg trampoline continuation)
-           (compute))))
-       (else
-        ((implicit-convert (begin body ...))
-         arg
-         trampoline
-         (lambda (r)
-           (let ((result (car r))
-                 (tail (cdr r)))
-             (continuation
-              (cons (cons 'parser
-                          (cond
-                           ((null? result)
-                            result)
-                           ((and (list? result)
-                                 (member (car result)
-                                         '(seq term)))
-                            (cdr result))
-                           (else
-                            (list result))))
-                    tail))))))))))
+    (make-parser
+     (arg trampoline continuation)
+     (let ((fn (implicit-conversion (begin body ...)))
+           (continuation
+            (lambda (r)
+              (let ((result (car r))
+                    (tail (cdr r)))
+                (continuation
+                 (cons (cons 'parser
+                             (cond
+                              ((null? result)
+                               result)
+                              ((and (list? result)
+                                    (member (car result)
+                                            '(seq term)))
+                               (cdr result))
+                              (else
+                               (list result))))
+                       tail))))))
+       (fn arg trampoline continuation)))))
 
-(define (term match)
-  (let ((length (string-length match)))
-    (lambda (arg trampoline continuation)
-      (when (and (string? arg)
-                 (<= length (string-length arg))
-                 (string=? match (substring arg 0 length)))
-        (continuation
-         (cons match (substring arg length)))))))
+(define term
+  (memo
+   (lambda (match)
+     (let ((length (string-length match)))
+       (lambda (arg trampoline continuation)
+         (when (and (string? arg)
+                    (<= length (string-length arg))
+                    (string=? match (substring arg 0 length)))
+           (continuation
+            (cons match (substring arg length)))))))))
 
-(define (implicit-convert parser)
+(define (implicit-conversion parser)
   (if (string? parser)
       (term parser)
       parser))
 
-(define-syntax-rule (seq A ...)
-  (lambda (arg trampoline continuation)
-    (let* ((parsers (map implicit-convert (list A ...)))
-           (fn (car parsers))
-           (cont (foldr (lambda (fn continuation)
-                          (lambda (r)
-                            (let ((result (car r)))
-                              (fn (cdr r)
-                                  trampoline
-                                  (lambda (r)
-                                    (continuation
-                                     (cons (append result
-                                                   (list (car r)))
-                                           (cdr r))))))))
-                        continuation
-                        (cdr parsers))))
-      (fn arg trampoline
-          (lambda (r)
-            (cont (cons (list 'seq (car r))
-                        (cdr r))))))))
+(define seq
+  (memo
+   (lambda parsers
+     (make-parser
+      (arg trampoline continuation)
+      (let* ((parsers (map implicit-conversion parsers))
+             (fn (car parsers))
+             (cont
+              (foldr
+               (lambda (fn continuation)
+                 (lambda (r)
+                   (let ((result (car r)))
+                     (fn (cdr r)
+                         trampoline
+                         (lambda (r)
+                           (continuation
+                            (cons (append result
+                                          (list (car r)))
+                                  (cdr r))))))))
+               continuation
+               (cdr parsers))))
+        (fn arg trampoline
+            (lambda (r)
+              (cont (cons (list 'seq (car r))
+                          (cdr r))))))))))
 
-(define-syntax-rule (alt A ...)
-  (lambda (arg trampoline continuation)
-    (for ((fn (map implicit-convert (list A ...))))
-         (send trampoline push fn arg continuation))))
+(define alt
+  (memo
+   (lambda parsers
+     (make-parser
+      (arg trampoline continuation)
+      (let ((parsers (map implicit-conversion parsers)))
+        (for ((fn parsers))
+             (send trampoline push fn arg continuation)))))))
 
-(define-syntax-rule (opt A)
-  (alt epsilon A))
+(define maybe
+  (memo
+   (lambda (parser)
+     (alt epsilon parser))))
 
-(define-syntax-rule (k* A)
-  (alt epsilon
-       (seq A (k* A))))
+(define many
+  (memo
+   (lambda (parser)
+     (alt epsilon
+          (seq parser (many parser))))))
+
+(define many1
+  (memo
+   (lambda (parser)
+     (seq parser (many parser)))))
 
 ;;; Parsers
 
@@ -181,8 +217,7 @@
 (define-parser op
   (alt "+" "-"))
 
-(stream->list
- (expr "1+2+3"))
+(stream->list (expr "1+2+3"))
 
 ;; R: S ::= a S
 ;;       |  a
@@ -265,8 +300,8 @@
 
 (L2:S "bbb")
 
-;; without any semantic rules (such as string concatenation),
-;; the number of matches for this grammar is exponential
+;; beware: without any semantic rules (like string concatenation),
+;; the number of matches for this grammar is exponential!
 (L2:S "bbbbbbb")
 
 ;; L2*: S ::= b
@@ -282,6 +317,71 @@
        epsilon))
 
 (L2*:S "bbb")
+
+;; CME: A ::= B a
+;;      B ::= C b
+;;      C ::= B
+;;         |  A
+;;         |  c
+(define-parser CME:A
+  (seq CME:B "a"))
+
+(define-parser CME:B
+  (seq CME:C "b"))
+
+(define-parser CME:C
+  (alt CME:B
+       CME:A
+       "c"))
+
+(CME:A "cba")
+
+;; CME*: S ::= A
+;;          |  B
+;;       A ::= A a
+;;          |  B
+;;          |  a
+;;       B ::= B b
+;;          |  A
+;;          |  b
+(define-parser CME*:S
+  (alt CME*:A
+       CME*:B))
+
+(define-parser CME*:A
+  (alt (seq CME*:A "a")
+       CME*:B
+       "a"))
+
+(define-parser CME*:B
+  (alt (seq CME*:B "b")
+       CME*:A
+       "b"))
+
+;; endless loop!
+(CME*:S "ab")
+
+;; M: A ::= B
+;;       |  a
+;;    B ::= A
+;;          b
+(define-parser M:A
+  (alt M:B
+       "a"
+       ))
+
+(define-parser M:B
+  (alt M:A
+       "b"
+       ))
+
+;; infinite results!
+(stream-ref (M:A "a") 0)
+
+(define-parser SS
+  (alt SS "a"))
+
+(stream-ref (SS "a") 1)
 
 ;; SICP
 (define-parser noun
