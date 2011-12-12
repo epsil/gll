@@ -63,6 +63,7 @@
          (else
           ;; function has been called with arg before
           (set! entry (mcdr entry))
+          ;; use memoization here to prevent infinite loops?
           (set-mcar! entry (mappend (mcar entry) (mlist continuation)))
           (for ((result (mcdr entry)))
                (push-stack continuation result))))))
@@ -77,8 +78,9 @@
 ;; seriously, racket?
 (define-syntax-rule (make-stream body ...)
   (stream-rest
-   (stream-cons '()
-                (begin body ...))))
+   (stream-cons '() (begin body ...))))
+
+(define parser-tag (make-parameter 'parser))
 
 (define-syntax-rule (make-parser (arg trampoline continuation) body ...)
   (lambda (arg (trampoline #f) (continuation #f))
@@ -110,26 +112,12 @@
   (define parser
     (make-parser
      (arg trampoline continuation)
-     (let ((fn (implicit-conversion (begin body ...)))
-           (continuation
-            (lambda (r)
-              (let ((result (car r))
-                    (tail (cdr r)))
-                (continuation
-                 (cons (cons 'parser
-                             (cond
-                              ((null? result)
-                               result)
-                              ((and (list? result)
-                                    (member (car result)
-                                            '(seq term)))
-                               (cdr result))
-                              (else
-                               (list result))))
-                       tail))))))
-       (fn arg trampoline continuation)))))
+     (parameterize ((parser-tag 'parser))
+       ;; handle (define-parser "foo" 'string->symbol)
+       (let ((fn (implicit-conversion (begin body ...))))
+         (fn arg trampoline continuation))))))
 
-(define term
+(define terminal
   (memo
    (lambda (match)
      (let ((length (string-length match)))
@@ -145,7 +133,31 @@
       (term parser)
       parser))
 
-(define seq
+;; semantic action
+(define reduce
+  (memo
+   (lambda (parser func)
+     (if (null? func)
+         parser
+         (make-parser
+          (arg trampoline continuation)
+          (parser arg trampoline
+                  (lambda (r)
+                    (let ((result (car r))
+                          (tail (cdr r)))
+                      (continuation
+                       (cons (cond
+                              ((null? result)
+                               (list func))
+                              ((and (list? result)
+                                    (equal? (car result) 'seq))
+                               (cons func (cdr result)))
+                              (else
+                               (list func result)))
+                             tail))))))))))
+
+;; sequence
+(define sequence
   (memo
    (lambda parsers
      (make-parser
@@ -171,7 +183,8 @@
               (cont (cons (list 'seq (car r))
                           (cdr r))))))))))
 
-(define alt
+;; alternatives
+(define alternatives
   (memo
    (lambda parsers
      (make-parser
@@ -196,6 +209,35 @@
    (lambda (parser)
      (seq parser (many parser)))))
 
+;; DSL
+(define-syntax red
+  (syntax-rules (tag)
+    [(red a 'tag)
+     (reduce a (parser-tag))]
+    [(red a b)
+     (reduce a b)]))
+
+(define-syntax seq
+  (syntax-rules ()
+    [(seq a ... 'x)
+     (red (sequence a ...) 'x)]
+    [(seq a ...)
+     (red (sequence a ...) 'list)]))
+
+(define-syntax alt
+  (syntax-rules ()
+    [(alt a ... 'x)
+     (red (alternatives a ...) 'x)]
+    [(alt a ...)
+     (alternatives a ...)]))
+
+(define-syntax term
+  (syntax-rules ()
+    [(term a ... 'x)
+     (red (terminal a ...) 'x)]
+    [(term a ...)
+     (terminal a ...)]))
+
 ;;; Parsers
 
 (define (epsilon arg trampoline continuation)
@@ -208,30 +250,39 @@
 ;;  num ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 ;;   op ::= + | -
 (define-parser expr
-  (alt (seq expr op expr)
+  (alt (seq expr op expr '(lambda (a op b) (eval `(,op ,a ,b))))
+       (seq "(" expr ")" '(lambda (_ x __) x))
        num))
 
 (define-parser num
-  (alt "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"))
+  (alt "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" 'string->number))
 
 (define-parser op
-  (alt "+" "-"))
+  (alt "+" "-" 'string->symbol))
 
-(stream->list (expr "1+2+3"))
+(map eval (stream->list (expr "1+2+3")))
+(map eval (stream->list (expr "1-2+3")))
 
 ;; R: S ::= a S
 ;;       |  a
 ;;       |  epsilon
 (define-parser R:S
-  (alt (seq "a" R:S)
+  (alt (seq "a" R:S '())
        "a"
-       epsilon))
+       epsilon
+       'tag))
 
-(R:S "aaa")
+(stream->list (R:S "aaa"))
 
 ;; R*: S ::= A S a
 ;;        |  a
 ;;     A ::= epsilon
+;;
+;; AKA:
+;;
+;;     A ::= B A a
+;;        |  a
+;;     B ::= epsilon
 (define-parser R*:S
   (alt (seq R*:A R*:S "a")
        "a"))
@@ -321,7 +372,7 @@
   (alt SS "a"))
 
 ;; infinite grammar
-(stream-ref (SS "a") 2)
+(SS "a")
 
 (define-parser M:A
   (alt M:B
@@ -332,7 +383,7 @@
        "b"))
 
 ;; infinite grammar #2
-(stream-ref (M:A "b") 0)
+(M:A "b")
 
 ;; CME: A ::= B a
 ;;      B ::= C b
@@ -350,7 +401,7 @@
        CME:A
        "c"))
 
-(stream->list (CME:A "cba"))
+(CME:A "cba")
 
 ;; CME*: S ::= A
 ;;          |  B
@@ -375,7 +426,7 @@
        "b"))
 
 ;; non-terminating grammar
-(stream-ref (CME*:S "ab") 0)
+(CME*:S "ab")
 
 ;; SICP
 (define-parser noun
