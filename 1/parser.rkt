@@ -237,4 +237,13 @@
 ;;     ((alt (seq s "a") "a") arg)))
 
 (define-parser s
-  (alt (seq s "a") "a"))
+  (alt (seq (term "a") s)
+       (term "a")))
+
+(s "aaa")
+
+(define-parser t
+  (alt (seq t (term "a"))
+       (term "a")))
+
+;; (t "aaa")

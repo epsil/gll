@@ -3,6 +3,8 @@
 
 (require racket/mpair)
 
+(struct result (tree tail) #:transparent)
+
 ;;; Memoization
 
 (define (memo cps-fn)
@@ -98,6 +100,9 @@
 
 (define (epsilon in c)
   (c (cons '() in)))
+
+(define (epsilon* arg cont)
+  (cont (result '() arg)))
 
 (define-parser noun
   (term student professor cat class))
