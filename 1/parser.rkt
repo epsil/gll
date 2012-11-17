@@ -3,9 +3,9 @@
 (require racket/mpair)
 
 ;; (define (result tree tail) (cons tree tail)) (define result-tree car) (define result-tail cdr)
-(struct result (tree tail) #:transparent)
-;; (struct success (tree tail) #:transparent)
-;; (struct failure tail #:transparent)
+;; (struct result (tree tail) #:transparent)
+(struct success (tree tail) #:transparent)
+(struct failure (tail) #:transparent)
 
 ;; vacuous
 (define-syntax-rule (define-parser parser body ...)
@@ -26,108 +26,132 @@
            (set! alist (mcons entry alist))
            result)]))))
 
-;; empty
-(define (epsilon arg)
-  (result '() arg))
+;; empty/epsilon/return
+(define (succeed str)
+  (success '() str))
+
+(define (fail str)
+  (failure str))
 
 ;; terminal
 (define term
   (memo (lambda strs
-          (define (term1 str)
-            (lambda (arg)
-              (let* ((len (min (string-length arg) (string-length str)))
-                     (head (substring arg 0 len))
-                     (tail (substring arg len)))
-                (if (equal? head str)
-                    (result head tail)
-                    #f))))
+          (define (term1 match)
+            (lambda (str)
+              (let* ((len (min (string-length str) (string-length match)))
+                     (head (substring str 0 len))
+                     (tail (substring str len)))
+                (if (equal? head match)
+                    (success head tail)
+                    (failure str)))))
           (memo (apply alt (map term1 strs))))))
 
-(define (foo arg)
-  (let* ((len (min (string-length "foo") (string-length arg)))
-         (head (substring arg 0 len))
-         (tail (substring arg len)))
+(define term-rewritten
+  (memo (lambda strs
+          (define (term1 match)
+            (lambda (str)
+              (let* ((len (min (string-length str) (string-length match)))
+                     (head (substring str 0 len))
+                     (tail (substring str len)))
+                (if (equal? head match)
+                    (success head tail)
+                    (failure str)))))
+          (memo (apply alt (map term1 strs))))))
+
+(define (foo str)
+  (let* ((len (min (string-length str) 3))
+         (head (substring str 0 len))
+         (tail (substring str len)))
     (if (equal? head "foo")
-        (result head tail)
-        #f)))
+        (success head tail)
+        (failure str))))
+
+(define (term+ match)
+  (lambda (str)
+    (let* ((len (min (string-length str) (string-length match)))
+           (head (substring str 0 len))
+           (tail (substring str len)))
+      (if (equal? head match)
+          (success head tail)
+          (failure str)))))
 
 (define term*
-  (memo (lambda (str)
-          (memo (lambda (arg)
-                  (let* ((len (min (string-length arg) (string-length str)))
-                         (head (substring arg 0 len))
-                         (tail (substring arg len)))
-                    (if (equal? head str)
-                        (result head tail)
-                        #f)))))))
+  (memo (lambda (match)
+          (memo (lambda (str)
+                  (let* ((len (min (string-length str) (string-length match)))
+                         (head (substring str 0 len))
+                         (tail (substring str len)))
+                    (if (equal? head match)
+                        (success head tail)
+                        (failure str))))))))
 
 ;; alternatives
 (define alt
   (memo (lambda parsers
           (define (alt2 b a)
-            (lambda (arg)
-              (match (a arg)
-                [(result tree tail) (result tree tail)]
-                [#f (b arg)])))
+            (lambda (str)
+              (match (a str)
+                [(success tree tail) (success tree tail)]
+                [failure (b str)])))
           (memo (foldl alt2 (car parsers) (cdr parsers))))))
 
 (define (alt* a b)
-  (lambda (arg)
-    (match (a arg)
-      [(result tree tail) (result tree tail)]
-      [#f (b arg)])))
+  (lambda (str)
+    (match (a str)
+      [(success tree tail) (success tree tail)]
+      [failure (b str)])))
 
 (define (alt+ . parsers)
   (define (alt2 b a)
-    (lambda (arg)
-      (match (a arg)
-        [(result tree tail) (result tree tail)]
-        [#f (b arg)])))
+    (lambda (str)
+      (match (a str)
+        [(success tree tail) (success tree tail)]
+        [failure (b str)])))
   (foldl alt2 (car parsers) (cdr parsers)))
 
 ;; sequence
 (define seq
   (memo (lambda parsers
           (define (seq2 b a)
-            (lambda (arg)
-              (match (a arg)
-                [(result tree1 tail1)
+            (lambda (str)
+              (match (a str)
+                [(success tree1 tail1)
                  (match (b tail1)
-                   [(result tree2 tail2)
-                    (result (append tree1 (list tree2)) tail2)]
-                   [#f #f])]
-                [#f #f])))
-          (define (init arg)
-            (result (list 'seq) arg))
+                   [(success tree2 tail2)
+                    (success (append tree1 (list tree2)) tail2)]
+                   [failure failure])]
+                [failure failure])))
+          (define (init str)
+            (success (list 'seq) str))
           (memo (foldl seq2 init parsers)))))
 
 (define (seq* a b)
-  (lambda (arg)
-    (match (a arg)
-      [(result tree1 tail1)
+  (lambda (str)
+    (match (a str)
+      [(success tree1 tail1)
        (match (b tail1)
-         [(result tree2 tail2)
-          (result (list 'seq tree1 tree2) tail2)]
-         [#f #f])]
-      [#f #f])))
+         [(success tree2 tail2)
+          (success (list 'seq tree1 tree2) tail2)]
+         [failure failure])]
+      [failure failure])))
 
 (define (seq+ . parsers)
   (define (seq2 b a)
-    (lambda (arg)
-      (match (a arg)
-        [(result tree1 tail1)
+    (lambda (str)
+      (match (a str)
+        [(success tree1 tail1)
          (match (b tail1)
-           [(result tree2 tail2)
-            (result (append tree1 (list tree2)) tail2)]
-           [#f #f])]
-        [#f #f])))
-  (define (init arg)
-    (result (list 'seq) arg))
+           [(success tree2 tail2)
+            (success (append tree1 (list tree2)) tail2)]
+           [failure failure])]
+        [failure failure])))
+  (define (init str)
+    (success (list 'seq) str))
   (foldl seq2 init parsers))
 
 ;; optional
 (define (opt parser)
-  (alt parser epsilon))
+  (alt parser succeed))
 
 ;; zero or more
 ;; (define (many parser)
@@ -137,49 +161,49 @@
 ;; (define (many1 parser)
 ;; (define (any a)
 ;;   (match (many parser)
-;;     [(result (cons 'seq tree) tail)
-;;      (result tail tree)]
-;;     [result result]))
-;; (seq parser (alt epsilon (many1 parser))))
+;;     [(success (cons 'seq tree) tail)
+;;      (success tail tree)]
+;;     [failure failure]))
+;; (seq parser (alt succeed (many1 parser))))
 
 ;; (define (many1 parser)
-;;   (lambda (arg)
+;;   (lambda (str)
 ;;     (define (iterate r)
 ;;       (match r
-;;         [(result tree1 tail1)
+;;         [(success tree1 tail1)
 ;;          (match (parser tail1)
-;;            [(result tree2 tail2)
-;;             (iterate (result (append tree1 (list tree2)) tail2))]
-;;            [#f r])]
-;;         [#f #f]))
+;;            [(success tree2 tail2)
+;;             (iterate (success (append tree1 (list tree2)) tail2))]
+;;            [(failure tail) r])]
+;;         [(failure tail) (failure tail)]))
 ;;     (define init
 ;;       (seq parser))
-;;     (iterate (init arg))))
+;;     (iterate (init str))))
 
 (define (many1 parser)
   (memo
-   (lambda (arg)
-     (match ((seq parser (many parser)) arg)
-       [(result (list 'seq tree1 tree2) tail)
+   (lambda (str)
+     (match ((seq parser (many parser)) str)
+       [(success (list 'seq tree1 tree2) tail)
         (match tree2
           [(cons 'seq tree3)
-           (result (append (list 'seq tree1) tree3) tail)]
-          [_ (result (list 'seq tree1) tail)])]
-       [#f #f]))))
+           (success (append (list 'seq tree1) tree3) tail)]
+          [_ (success (list 'seq tree1) tail)])]
+       [failure failure]))))
 
 (define (many parser)
   (opt (many1 parser)))
 
 ;; reduce
 (define (red parser fn)
-  (lambda (arg)
-    (match (parser arg)
-      [(result (cons 'seq tree) tail)
-       (result (apply fn tree) tail)]
-      [(result tree tail)
-       (result (list fn tree) tail)
-       (result (fn tree) tail)]
-      [#f #f])))
+  (lambda (str)
+    (match (parser str)
+      [(success (cons 'seq tree) tail)
+       (success (apply fn tree) tail)]
+      [(success tree tail)
+       (success (list fn tree) tail)
+       (success (fn tree) tail)]
+      [failure failure])))
 
 ;; tag
 (define (tag parser t)
@@ -233,8 +257,8 @@
 ;;   (alt (seq s "a") "a"))
 
 ;; (define s
-;;   (lambda (arg)
-;;     ((alt (seq s "a") "a") arg)))
+;;   (lambda (str)
+;;     ((alt (seq s "a") "a") str)))
 
 (define-parser s
   (alt (seq (term "a") s)
@@ -247,3 +271,20 @@
        (term "a")))
 
 ;; (t "aaa")
+
+(define (succeed2 str cont)
+  (cont (success '() str)))
+
+(define (fail2 str cont)
+  (cont (fail str)))
+
+(succeed2 "string" print)
+
+(define (term2 match)
+  (lambda (str cont)
+    (let* ((len (min (string-length str) (string-length match)))
+           (head (substring str 0 len))
+           (tail (substring str len)))
+      (if (equal? head match)
+          (cont (success head tail))
+          (cont (failure tail))))))

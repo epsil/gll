@@ -81,78 +81,88 @@ Although more likely:
 
 Let's start by defining some terms.
 
-A *parser* is a function which takes a string as input and returns a *parse result*. A successful result contains two values: an abstract syntax tree and the remainder of the string. A failing result is simply represented as the boolean value `#f`.
+A *parser* is a function which takes a string as input and returns a *parse result*. A successful result contains two values: an abstract syntax tree and the remainder of the string. A failing result just contains the input string, which can be used for error reporting.
 
 A *parser combinator* is a function that takes parsers as input and returns another parser. In other words, it's a higher-order function, taking functions as input and returning a new function as output. Using parser combinators, we can build bigger parsers out of smaller parsers.
 
-We'll start by defining a simple string parser. First we'll define a new data type for successful parse results:
+We'll start by defining a simple string parser. First we'll define data types for parse results:
 
 ```Scheme
-(struct result (tree tail) #:transparent)
+(struct success (tree tail) #:transparent)
+(struct failure (tail) #:transparent)
 ```
 
-This defines `result` as a constructor, so that we can create parse results with `(result tree tail)`. Furthermore, it defines the functions `result-tree` and `result-tail` for obtaining the tree and tail of a result. We can also use pattern matching for this purpose. The `#:transparent` option makes the parse result printable.
+This defines `success` and `fail` as constructor functions for parse results. For example, we can create a successful result with the expression `(success tree tail)`, and a failure with `(failure tail)`. We can also *pattern match* against these expressions, which we will see multiple examples of below. (If we didn't have pattern matching, then we would need to check for a successful result with the function `success?` and extract its parts with the functions `success-tree` and `success-tail`, which are generated automatically.) The `#:transparent` option makes the values printable.
 
-Now we can define a simple parser which looks at the beginning of the input and compares it to the predefined string `"foo"`:
+Now we can define two trivial parsers: one which accepts any input, and one which accepts no input. The first is often known as the "empty parser", "epsilon" or "return". It can be used to define optional parsings.
 
 ```Scheme
-(define (foo arg)
-  (let* ((len (min (string-length "foo") (string-length arg)))
-         (head (substring arg 0 len))
-         (tail (substring arg len)))
+(define (succeed str)
+  (success '() str))
+
+(define (fail str)
+  (failure str))
+```
+
+Both parsers take a string as input (the parameter `str`) and return a parse result. `succeed` returns a successful result with an empty syntax tree and the whole string as remainder; that is, it consumes no part of the input string. Similarly, `fail` returns a failing result.
+
+The next step is to define a parser which compares the beginning of the input against some string. The following parser compares against the string `"foo"`:
+
+```Scheme
+(define (foo str)
+  (let* ((len (min (string-length str) 3))
+         (head (substring str 0 len))
+         (tail (substring str len)))
     (if (equal? head "foo")
-        (result head tail)
-        #f)))
+        (success head tail)
+        (failure str))))
 ```
 
-If it matches, the parse is successful, and we return a parse result where that much of the input is consumed. If not, we return `#f`.
-
-Let us create a general function for constructing such terminal parsers. The following takes a matching string as input and returns a parser for matching against that string:
+If the input matches, then the parser returns a successful result where the `"foo"` part is consumed; otherwise it returns a failure. For example, the input `"foobar"` gives a syntax tree of `"foo"` and a string remainder of `"bar"`:
 
 ```Scheme
-(define (term str)
-  (lambda (arg)
-    (let* ((len (min (string-length arg) (string-length str)))
-           (head (substring arg 0 len))
-           (tail (substring arg len)))
-      (if (equal? head str)
-          (result head tail)
-          #f))))
+> (foo "foobar")
+(success "foo" "bar")
 ```
 
-For example, `(term "foo")` constructs a parser that matches against `"foo"`, while `(term "bar")` matches against `"bar"`. We can consider the function `term` as a "parser generator": it creates a parser on the basis of a given specification.
-
-For later use, we'll also define the *empty parser* (often called "epsilon"):
+Parsers of this kind are often called *terminal parsers*, because they match against a terminal expression in the grammar. Let us create a general function for constructing such parsers. The following takes a matching string as input and returns a parser for matching against that string:
 
 ```Scheme
-(define (epsilon arg)
-  (result '() arg))
+(define (term match)
+  (lambda (str)
+    (let* ((len (min (string-length str) (string-length match)))
+           (head (substring str 0 len))
+           (tail (substring str len)))
+      (if (equal? head match)
+          (success head tail)
+          (failure str)))))
 ```
 
-This parser accepts any input string. It returns an empty parse result, consuming no part of the string.
+For example, `(term "foo")` constructs a parser that matches against `"foo"`, while `(term "bar")` matches against `"bar"`. The function `term` could well be considered a "parser generator": it creates a parser on the basis of a given specification.
 
 Now that we have some basic parsers, it is time to combine them. The first combinator is the *alternatives combinator* (also called the "choice" combinator), which chooses between alternative parsers. The input to the combinator is the parsers to choose from, and the output is a new parser which tries each parser in turn.
 
 ```Scheme
 (define (alt a b)
-  (lambda (arg)
-    (match (a arg)
-      [(result tree tail) (result tree tail)]
-      [#f (b arg)])))
+  (lambda (str)
+    (match (a str)
+      [(success tree tail) (success tree tail)]
+      [failure (b str)])))
 ```
 
-Here we use Racket's matching facility. Initially, we invoke the first parser with `(a arg)`, matching against the return value. If we get a successful parse result `(result tree tail)`, we return it. Otherwise, we invoke the second parser with `(b arg)` and return that instead.
+Here we see Racket's matching facility in action. Initially, we invoke the first parser with `(a arg)`, matching against the return value. If we get a successful parse result `(success tree tail)`, we return it. Otherwise, we invoke the second parser with `(b arg)` and return that instead. (For simplicity, the combinator only takes two arguments: we'll write a more general version later.)
 
-Now we can create a parser that matches either `"foo"` or `"bar"`:
+Let's create a parser that matches either `"foo"` or `"bar"`:
 
 ```Scheme
-(alt (term "foo")
-     (term "bar"))
+(define foo-or-bar
+  (alt (term "foo")
+       (term "bar")))
 ```
 
 This parser will succeed in parsing both the input strings `"foobar"` and `"barfoo"` (but not `"bazfoo"`).
 
-The next combinator is the *sequence combinator*, which chains parsers together. The output of one parser is taken as the input to another parser. The sequence only succeeds if each individual parser succeeds.
+The next combinator is the *sequence combinator*, which chains parsers together. The output of one parser is taken as the input to another. The sequence only succeeds if each individual parser does.
 
 ```Scheme
 (define (seq a b)
@@ -171,8 +181,12 @@ We invoke the `a` parser first, using pattern matching on its return value. If i
 Using the sequence parser, we can create a parser which matches `"foo"` followed by `"bar"`:
 
 ```Scheme
-(seq (term "foo")
-     (term "bar"))
+(define foobar
+  (seq (term "foo")
+       (term "bar")))
+
+> (foobar "foobar")
+(success (seq "foo" "bar") "")
 ```
 
 Next, we define a few convenience combinators. The *optional combinator* matches a parser zero or one times:
@@ -250,9 +264,11 @@ We can now parse a sentence with:
 
 ```Scheme
 (sentence "the professor lectures the student ")
-  => (result '(sentence (noun-phrase (article "the ") (noun "professor "))
+  => (result '(sentence (noun-phrase (article "the ")
+                                     (noun "professor "))
                         (verb-phrase (verb "lectures ")
-                                     (noun-phrase (article "the ") (noun "student "))))
+                                     (noun-phrase (article "the ")
+                                                  (noun "student "))))
              "")
 (sentence "not a sentence")
   => #f
@@ -308,7 +324,7 @@ In Racket, it is easy to write a `memo` function which takes any function as inp
            result)]))))
 ```
 
-This function is loosely adapted from SICP. We implement the memoization table as a mutable *association list*, using the Racket function `massoc` to access it. It is actually a list of mutable cons cells `(args . result)`. If `massoc` returns a cons cell, we match against it and return the result. Otherwise, we call the original function with `(apply fn args)`, store the result in a cons cell, insert the cons cell into the table, and return the result.
+This function is loosely adapted from SICP. We implement the memoization table as a mutable *association list*, using the Racket function `massoc` to access it. It is actually a list of mutable cons cells `(args . result)`. If `massoc` returns a cons cell, we match against it and return the result. Otherwise, we call the original function with `(apply fn args)`, store the result in a cons cell, insert the cons cell into the table, and then return the result.
 
 Now we can easily memoize our combinators. For example, the `alt` combinator can be defined as:
 
@@ -375,9 +391,58 @@ This parser will enter an infinite regress because it repeatedly calls itself be
 Continuation-passing style
 --------------------------
 
-So far, we have taken advantage of the fact that many grammars can be translated directly into a program. The program is laid out in a hierarchical fashion, with functions calling functions, all the way down to the level of string matching. The program either returns a single result, or no result at all.
+So far, we have taken advantage of the fact that many grammars can be translated directly into a program. The program has a simple, hierarchical structure, with functions calling functions all the way down to the level of string matching. It returns either a single result, or no result at all.
 
-Not all grammars are this simple, however. In general terms, a grammar is simply a specification of a language. There is no guarantee that the order of the grammar will translate into a sensible order of execution.
+Not all grammars are this simple, however. Once we introduce recursion, there is not guarantee that the grammar will translate into a terminating program. Furthermore, grammars can be ambiguous: with several matching alternatives, a string can parsed in multiple, equally valid ways. For simplicity, our `alt` combinator only returned a single result (the first that matched). A more complete implementation would return the *set* of results.
+
+To address these issues, we will rewrite and express our parsers in a more flexible way: *continuation-passing style*. Instead of having our parsers return their results to the caller, they will pass them to a continuation. The continuation then carries on the parsing. All the parsers will have an additional argument for the continuation they are to pass their results to. The continuation itself is a function of one argument.
+
+Let us start by rewriting the `success` parser. Recall the original definition:
+
+```Scheme
+(define (succeed str)
+  (success '() str))
+```
+
+To transform this function to continuation-passing style, we add a second argument, `cont`. Instead of returning the parse result, we pass it to `cont`.
+
+```Scheme
+(define (succeed str cont)
+  (cont (success '() str)))
+```
+
+To use this parser, we need to supply it with a continuation. Any function of one argument will do. For example, we can use `print`:
+
+```Scheme
+> (succeed "string" print)
+(result '() "string")
+```
+
+Of course, this is a bit cumbersome, so in the final version we will provide an easier interface for invoking parsers. For now, let's proceed with `term`:
+
+```Scheme
+(define (term str)
+  (lambda (arg)
+    (let* ((len (min (string-length arg) (string-length str)))
+           (head (substring arg 0 len))
+           (tail (substring arg len)))
+      (if (equal? head str)
+          (result head tail)
+          #f))))
+```
+
+That is, instead of having each parser *return* a value, we'll pass in a continuation (a snippet of code) which *receives* the current parsing results, continuing as necessary. Although the parser doesn't support left recursion yet, this style is more flexible and sets the stage for implementing a general parser.
+
+We will now develop our parser combinators in a more general direction to better accommodate recursive and ambiguous grammars.
+
+Since
+
+When we implemented the `alt` combinator, we only returned the first matching alternative.
+
+Once we start defining recursive
+
+
+In general terms, a grammar is simply a specification of a language. There is no guarantee that the order of the grammar will translate into a sensible order of execution.
 
 Furthermore, grammars can be ambiguous. When we implemented the `alt` combinator, we only returned the first matching alternative. In an ambiguous grammar, several alternatives could match at the same time, giving multiple, equally valid parsings of the input.
 
@@ -424,6 +489,14 @@ We have had a linear approach to grammars.
 We have now written a simple, top-down combinator framework, implementing things in the common way. While it cannot parse all grammars, it is simple to understand and simple to extend.
 
 2. Next, we'll rewrite this parser to use continuation-passing style. That is, instead of having each parser *return* a value, we'll pass in a continuation (a snippet of code) which *receives* the current parsing results, continuing as necessary. Although the parser doesn't support left recursion yet, this style is more flexible and sets the stage for implementing a general parser.
+
+----
+
+Code cleanup:
+
+* Rename `arg` to `str`
+* Define `failure`
+* Simplify `term`?
 
 ----
 
