@@ -17,71 +17,12 @@ We'll write the parser in several steps:
 
 5. Now we have to wherewithal to implement a lazy parse process. The parser will return a stream of parse results, computing the results as they are requested.
 
-Let's get started.
+Let's get started!
 
-Step 1: Simple parser combinators
----------------------------------
+Simple parser combinators
+-------------------------
 
-How it'll look:
-
-```Scheme
-(define article
-  (term "the " "a "))
-
-(define noun
-  (term "student " "professor " "cat " "class "))
-
-(define verb
-  (term "studies " "lectures " "eats " "sleeps "))
-
-(define noun-phrase
-  (seq article noun))
-
-(define verb-phrase
-  (alt (seq verb noun-phrase)
-       (seq verb sentence)))
-
-(define sentence
-  (seq NP VP))
-
-(sentence "the student studies the cat intently "))
-```
-
-How will we deal with evaluation?
-
-```Scheme
-(define sentence
-  (delay
-    (seq NP VP)))
-```
-
-Or use `delay` in the macro body of ... `seq` and `alt`? Delays are memoized! Lazy Racket does this automatically, but has some issues.
-
-```Scheme
-;; verb phrase: VP -> V NP | V S
-
-(define VP
-  (alt (seq V NP)
-       (seq V S)))
-
-(define verb-phrase
-  (alt (seq verb noun-phrase)
-       (seq verb sentence)))
-```
-
-Although more likely:
-
-```Scheme
-(define-parser verb-phrase
-  (alt (seq verb noun-phrase)
-       (seq verb sentence)))
-```
-
-----
-
-Let's start by defining some terms.
-
-A *parser* is a function which takes a string as input and returns a *parse result*. A parse result is either a success or a failure.
+Let's start by defining some terms. A *parser* is a function which takes a string as input and returns a *parse result*. A parse result is either a success or a failure.
 
 A *parser combinator* is a function that takes parsers as input and returns another parser. In other words, it's a higher-order function, taking functions as input and returning a new function as output. Using parser combinators, we can build bigger parsers out of smaller parsers.
 
@@ -190,64 +131,44 @@ We can define other combinators in terms of these basic combinators. For example
   (alt parser epsilon))
 ```
 
-Other combinators that are commonly defined in this way include `many` and `many1`, which match the same parser multiple times. We will not cover their definitions here, but instead skip ahead to the *reduce combinator*, which transforms the abstract syntax tree using a given function. Among other things, the reduce operator can be used to implement a *tagging combinator* which inserts a given value directly into the syntax tree.
-
-```Scheme
-(define (red parser fn)
-  (lambda (arg)
-    (match (parser arg)
-      [(result (cons 'seq tree) tail)
-       (result (apply fn tree) tail)]
-      [(result tree tail)
-       (result (list fn tree) tail)
-       (result (fn tree) tail)]
-      [#f #f])))
-
-(define (tag parser t)
-  (red parser (lambda tree (append (list t) tree))))
-```
-
-Let us now look at a complete example. The following implements a simple linguistic grammar taken from SICP:
+Other common combinators are `many` and `many1`, which match the same parser multiple times. We will not cover their definitions here, but instead skip ahead to a complete example. The following implements a simple linguistic grammar taken from SICP:
 
 ```Scheme
 (define article
-  (tag (alt (term "the ")
-            (term "a "))
-       'article))
+  (alt (term "the ")
+       (term "a ")))
 
 (define noun
-  (tag (alt (term "student ")
-            (term "professor "))
-       'noun))
+  (alt (term "student ")
+       (term "professor ")))
 
 (define verb
-  (tag (alt (term "studies ")
-            (term "lectures "))
-       'verb))
+  (alt (term "studies ")
+       (term "lectures ")))
 
 (define noun-phrase
-  (tag (seq article noun) 'noun-phrase))
+  (seq article noun))
 
 (define verb-phrase
-  (tag (seq verb noun-phrase) 'verb-phrase))
+  (seq verb noun-phrase))
 
 (define sentence
-  (tag (seq noun-phrase verb-phrase) 'sentence))
+  (seq noun-phrase verb-phrase))
 ```
 
 We can parse a sentence with:
 
 ```Scheme
 > (sentence "the professor lectures the student ")
-  => (success '(sentence (noun-phrase (article "the ")
-                                      (noun "professor "))
-                         (verb-phrase (verb "lectures ")
-                                      (noun-phrase (article "the ")
-                                                   (noun "student "))))
+  => (success '(seq (seq "the " "professor ")
+                    (seq "lectures "
+                         (seq "the " "student ")))
               "")
 > (sentence "not a sentence")
   => (failure "not a sentence")
 ```
+
+Currently, the syntax tree isn't very informative, but we can see that there is parsing going on.
 
 Memoization
 -----------
@@ -310,17 +231,17 @@ The first use of `memo` memoizes the parser combinator, so that the same parser 
 There is a final wrinkle to sort out. Because of the way Racket evaluates function arguments, it is currently troublesome to define self-referential grammars:
 
 ```Scheme
-(define s
-  (alt (seq (term "a") s)
+(define r
+  (alt (seq (term "a") r)
        (term "a")))
 ```
 
-This will give an error because `s` is evaluated as an argument to `seq` before `s` is defined. We can delay the evaluation by wrapping it in a function:
+This will give an error because `r` is evaluated as an argument to `seq` before `r` is defined. We can delay the evaluation by wrapping it in a function:
 
 ```Scheme
-(define s
+(define r
   (lambda (arg)
-    ((alt (seq (term "a") s)
+    ((alt (seq (term "a") r)
           (term "a"))
      arg)))
 ```
@@ -337,16 +258,16 @@ To make things more convenient, we can create a `define-parser` macro which auto
 Now we can write:
 
 ```Scheme
-(define-parser s
-  (alt (seq (term "a") s)
+(define-parser r
+  (alt (seq (term "a") r)
        (term "a")))
 ```
 
-The current parser combinators support recursion to a limited degree. The `s` parser is right-recursive because the self-reference is "to the right" in the sequence. Therefore, `s` will always consume some part of the input string (an `"a"`) before recursing. In a left-recursive grammar, on the other hand, the self-reference comes first:
+The current parser combinators support recursion to a limited degree. The `r` parser is right-recursive because the self-reference is "to the right" in the sequence. Therefore, `r` will always consume some part of the input string (an `"a"`) before recursing. In a left-recursive grammar, on the other hand, the self-reference comes first:
 
 ```Scheme
-(define-parser t
-  (alt (seq t (term "a"))
+(define-parser s
+  (alt (seq s (term "a"))
        (term "a")))
 ```
 
@@ -355,7 +276,7 @@ This parser will enter an infinite regress because it repeatedly calls itself be
 Continuation-passing style
 --------------------------
 
-So far, we have taken advantage of the fact that many grammars can be translated directly into a program. Such a program has a simple, hierarchical structure, with functions calling functions all the way down to the level of string matching. It returns either a single result, or no result at all.
+So far, we have taken advantage of the fact that many grammars can be translated directly into a program. Such a program will have a straightforward, hierarchical structure, with functions calling functions all the way down to the level of string matching. It will either return a single result or no result at all.
 
 Not all grammars are this simple, however. Once we introduce recursion, there is not guarantee that the grammar will translate into a terminating program. Furthermore, grammars can be ambiguous: with several matching alternatives, a string can parsed in multiple, equally valid ways. For simplicity, our `alt` combinator only returned a single result (the first that matched). A more complete implementation would return the *set* of results.
 
@@ -398,8 +319,9 @@ Of course, this is a bit cumbersome, so in the final version we will provide a s
           (cont (failure tail))))))
 ```
 
-These definitions are quite similar to the original. The `seq` parser, however, is more complex:
+These definitions are quite similar to the original. The `seq` combinator, however, is more complex:
 
+```Scheme
 (define (seq a b)
   (lambda (str cont)
     (a str (lambda (result)
@@ -412,10 +334,11 @@ These definitions are quite similar to the original. The `seq` parser, however, 
                                              tail2))]
                              [failure (cont failure)])))]
                [failure (cont failure)])))))
+```
 
 Here we use continuations to chain the parsers together. Each parser is called with a continuation `(lambda (result) ...)` that receives the result and matches against it. If the first parser is successful, then its continuation invokes the second parser. If the second parser is also successful, then its continuation creates a combined result and passes it to `cont` (the continuation for the combined parser). In all other cases, a failure is passed to `cont`.
 
-Finally, we redefine `alt`.
+While expressed in a different style, all the code so far functions the same as before. For the `alt` combinator, however, we will change the semantics. It will always try all alternatives, branching out in parallel:
 
 ```Scheme
 (define (alt a b)
@@ -423,6 +346,108 @@ Finally, we redefine `alt`.
     (a str cont)
     (b str cont)))
 ```
+
+The continuation will be invoked twice, once for the first parser and once for the second. If the first parser succeeds and the second fails, then the continuation will first receive a successful result, and then a failing result.
+
+We have now rewritten our parser combinators to continuation-passing style. In itself, this doesn't solve the problems we had with recursive grammars, but it sets the stage for the solution. Observe that while the `alt` combinator produces two results, it doesn't pass them at the same time. The execution is more fine-grained: the combinator creates a separate *branch* for the calculation of each result.
+
+In other words, there is a kind of concurrency here (even if the current implementation is sequential). The key insight is that in a recursive grammar, one branch may depend on another: the recursive branch cannot continue before the base branch has produced a result. Is there a way we can make the branches cooperate?
+
+As it turns out, the answer is memoization! That is because when we memoize a continuation-passing style function, not only do we need to keep track of input values and output values, but also the continuations that are interested in them. Each table entry will contain a list of results (since the function may output more than one value), and a list of continuations (since the same function may be called in different places in a recursive grammar). Thus we can populate results from one branch to another, "reawakening" the interested branch. How do we awaken a branch? By invoking its continuation!
+
+To memoize functions written in continuation-passing style, we define a separate `memo-cps` wrapper. For readability, we define a few local functions for modifying a table entry. `push-continuation!` adds a continuation to an entry, `push-result!` adds a result to the entry, and `result-subsumed?` checks if the entry already contains a given result.
+
+```Scheme
+(define (memo-cps fn)
+  (define entry-continuations mcar)
+  (define entry-results mcdr)
+  (define (push-continuation! entry cont)
+    (set-mcar! entry (mappend (entry-continuations entry) (mlist cont))))
+  (define (push-result! entry result)
+    (set-mcdr! entry (mcons result (entry-results entry))))
+  (define (result-subsumed? entry result)
+    (mmember result (entry-results entry)))
+  (let ((table (mlist)))
+    (lambda (str cont)
+      (match (massoc str table)
+        ;; first time memoized procedure has been called with str
+        [#f
+         (let* ((entry (mcons (mlist cont) '()))
+                (pair (mcons str entry)))
+           (set! table (mcons pair table))
+           (fn str
+               (lambda (result)
+                 (unless (result-subsumed? entry result)
+                   (push-result! entry result)
+                   (for ((cont (entry-continuations entry)))
+                        (cont result))))))]
+        ;; memoized procedure has been called with str before
+        [(mcons str entry)
+         (push-continuation! entry cont)
+         (for ((result (entry-results entry)))
+              (cont result))]))))
+```
+
+There are two cases to consider: when the memoized function is called for the first time, and when it has been called before. When the function is called for the first time, we insert the original continuation, `cont`, into the table. Then we invoke the function with a custom continuation `(lambda (result) ...)` which in turn will invoke `cont`, as well as any other continuations which may have been inserted into the table in the meantime. We can think of the continuation `(lambda (result ...)` as our "man on the inside": it alone will do the work of being passed into the function and receive its results. Then it broadcasts those results to the continuations on the outside.
+
+Thus, in the second case when the function has been called before, we just insert the continuation into the list of continuations. Our "inside man" will then notify the continuation of new results as they are produced. Meanwhile, we go through the results that have been already produced.
+
+Now we are ready to memoize our parser combinators. We use `memo-cps` for the returned parsers and `memo` for the parser combinators, which doesn't have a continuation. Using `memo` ensures that a particular parser is created only once, so that the same instance is called in two separate branches. This is what allows the branches to cooperate.
+
+```Scheme
+(define succeed
+  (memo-cps
+   (lambda (str cont)
+     (cont (success '() str)))))
+
+(define fail
+  (memo-cps
+   (lambda (str cont)
+     (cont (failure str)))))
+
+(define term
+  (memo
+   (lambda (match)
+     (memo-cps
+      (lambda (str cont)
+        ...)))))
+
+(define seq
+  (memo
+   (lambda (a b)
+     (memo-cps
+      (lambda (str cont)
+        ...)))))
+
+(define alt
+  (memo
+   (lambda (a b)
+     (memo-cps
+      (lambda (str cont)
+        ...)))))
+```
+
+Now we can define our left-recursive grammar:
+
+```Scheme
+(define-parser s
+  (alt (seq s (term "a"))
+       (term "a")))
+```
+
+Let's parse a string of `"a"`s:
+
+```Scheme
+> (s "aaa" print)
+(success "a" "aa")
+(success '(seq "a" "a") "a")
+(success '(seq (seq "a" "a") "a") "")
+(failure "")
+```
+
+We get three results before the parser reaches the end of the string and terminates with a failure. It is worthwhile to consider the execution in detail.
+
+----
 
 That is, instead of having each parser *return* a value, we'll pass in a continuation (a snippet of code) which *receives* the current parsing results, continuing as necessary. Although the parser doesn't support left recursion yet, this style is more flexible and sets the stage for implementing a general parser.
 
@@ -433,7 +458,6 @@ Since
 When we implemented the `alt` combinator, we only returned the first matching alternative.
 
 Once we start defining recursive
-
 
 In general terms, a grammar is simply a specification of a language. There is no guarantee that the order of the grammar will translate into a sensible order of execution.
 
@@ -482,6 +506,126 @@ We have had a linear approach to grammars.
 We have now written a simple, top-down combinator framework, implementing things in the common way. While it cannot parse all grammars, it is simple to understand and simple to extend.
 
 2. Next, we'll rewrite this parser to use continuation-passing style. That is, instead of having each parser *return* a value, we'll pass in a continuation (a snippet of code) which *receives* the current parsing results, continuing as necessary. Although the parser doesn't support left recursion yet, this style is more flexible and sets the stage for implementing a general parser.
+
+----
+
+How it'll look:
+
+```Scheme
+(define article
+  (term "the " "a "))
+
+(define noun
+  (term "student " "professor " "cat " "class "))
+
+(define verb
+  (term "studies " "lectures " "eats " "sleeps "))
+
+(define noun-phrase
+  (seq article noun))
+
+(define verb-phrase
+  (alt (seq verb noun-phrase)
+       (seq verb sentence)))
+
+(define sentence
+  (seq NP VP))
+
+(sentence "the student studies the cat intently "))
+```
+
+How will we deal with evaluation?
+
+```Scheme
+(define sentence
+  (delay
+    (seq NP VP)))
+```
+
+Or use `delay` in the macro body of ... `seq` and `alt`? Delays are memoized! Lazy Racket does this automatically, but has some issues.
+
+```Scheme
+;; verb phrase: VP -> V NP | V S
+
+(define VP
+  (alt (seq V NP)
+       (seq V S)))
+
+(define verb-phrase
+  (alt (seq verb noun-phrase)
+       (seq verb sentence)))
+```
+
+Although more likely:
+
+```Scheme
+(define-parser verb-phrase
+  (alt (seq verb noun-phrase)
+       (seq verb sentence)))
+```
+
+----
+
+----
+
+Other combinators that are commonly defined in this way include `many` and `many1`, which match the same parser multiple times. We will not cover their definitions here, but instead skip ahead to the *reduce combinator*, which transforms the abstract syntax tree using a given function. Among other things, the reduce operator can be used to implement a *tagging combinator* which inserts a given value directly into the syntax tree.
+
+```Scheme
+(define (red parser fn)
+  (lambda (arg)
+    (match (parser arg)
+      [(result (cons 'seq tree) tail)
+       (result (apply fn tree) tail)]
+      [(result tree tail)
+       (result (list fn tree) tail)
+       (result (fn tree) tail)]
+      [#f #f])))
+
+(define (tag parser t)
+  (red parser (lambda tree (append (list t) tree))))
+```
+
+Let us now look at a complete example. The following implements a simple linguistic grammar taken from SICP:
+
+```Scheme
+(define article
+  (tag (alt (term "the ")
+            (term "a "))
+       'article))
+
+(define noun
+  (tag (alt (term "student ")
+            (term "professor "))
+       'noun))
+
+(define verb
+  (tag (alt (term "studies ")
+            (term "lectures "))
+       'verb))
+
+(define noun-phrase
+  (tag (seq article noun) 'noun-phrase))
+
+(define verb-phrase
+  (tag (seq verb noun-phrase) 'verb-phrase))
+
+(define sentence
+  (tag (seq noun-phrase verb-phrase) 'sentence))
+```
+
+We can parse a sentence with:
+
+```Scheme
+> (sentence "the professor lectures the student ")
+  => (success '(sentence (noun-phrase (article "the ")
+                                      (noun "professor "))
+                         (verb-phrase (verb "lectures ")
+                                      (noun-phrase (article "the ")
+                                                   (noun "student "))))
+              "")
+> (sentence "not a sentence")
+  => (failure "not a sentence")
+```
 
 ----
 

@@ -211,32 +211,53 @@
 
 ;;; Parsers
 
-(define article
-  (tag (alt (term "the ")
-            (term "a "))
-       'article))
+;; (define article
+;;   (tag (alt (term "the ")
+;;             (term "a "))
+;;        'article))
 
-(define noun
-  (tag (alt (term "student ")
-            (term "professor "))
-       'noun))
+;; (define noun
+;;   (tag (alt (term "student ")
+;;             (term "professor "))
+;;        'noun))
 
-(define verb
-  (tag (alt (term "studies ")
-            (term "lectures "))
-       'verb))
+;; (define verb
+;;   (tag (alt (term "studies ")
+;;             (term "lectures "))
+;;        'verb))
 
-(define noun-phrase
-  (tag (seq article noun) 'noun-phrase))
+;; (define noun-phrase
+;;   (tag (seq article noun) 'noun-phrase))
 
-(define verb-phrase
-  (tag (seq verb noun-phrase) 'verb-phrase))
+;; (define verb-phrase
+;;   (tag (seq verb noun-phrase) 'verb-phrase))
 
-(define sentence
-  (tag (seq noun-phrase verb-phrase) 'sentence))
+;; (define sentence
+;;   (tag (seq noun-phrase verb-phrase) 'sentence))
 
 ;; (alt (term "foo")
 ;;      (term "bar"))
+
+(define article
+  (alt (term "the ")
+       (term "a ")))
+
+(define noun
+  (alt (term "student ")
+       (term "professor ")))
+
+(define verb
+  (alt (term "studies ")
+       (term "lectures ")))
+
+(define noun-phrase
+  (seq article noun))
+
+(define verb-phrase
+  (seq verb noun-phrase))
+
+(define sentence
+  (seq noun-phrase verb-phrase))
 
 ;;; Test
 
@@ -246,6 +267,11 @@
 (newline)
 (print (sentence "not a sentence "))
 (newline)
+
+
+
+
+
 
 (define test-many
   (many (term "a")))
@@ -276,7 +302,7 @@
   (cont (success '() str)))
 
 (define (fail2 str cont)
-  (cont (fail str)))
+  (cont (failure str)))
 
 (succeed2 "string" print)
 
@@ -288,3 +314,28 @@
       (if (equal? head match)
           (cont (success head tail))
           (cont (failure tail))))))
+
+;; (define alt
+;;   (memo (lambda (a b)
+;;           (memo (lambda (str)
+;;                   (match (a str)
+;;                     [(success tree tail) (success tree tail)]
+;;                     [failure (b str)]))))))
+
+(define (alt2 a b)
+  (lambda (str cont)
+    (a str cont)
+    (b str cont)))
+
+(define (seq2 a b)
+  (lambda (str cont)
+    (a str (lambda (result)
+             (match result
+               [(success tree1 tail1)
+                (b tail1 (lambda (result)
+                           (match result
+                             [(success tree2 tail2)
+                              (cont (success (list 'seq tree1 tree2)
+                                             tail2))]
+                             [failure (cont failure)])))]
+               [failure (cont failure)])))))
