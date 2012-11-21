@@ -246,13 +246,17 @@ This will give an error because `r` is evaluated as an argument to `seq` before 
      arg)))
 ```
 
-To make things more convenient, we can create a `define-parser` macro which automatically delays the code for us.
+To make things more convenient, we can create a `delay-parser` macro which automatically delays the code for us, as well as a `define-parser` macro for defining delayed parsers.
 
 ```Scheme
+(define-syntax-rule (delay-parser parser)
+  (lambda args
+    (apply parser args)))
+
 (define-syntax-rule (define-parser parser body ...)
   (define parser
-    (lambda args
-      (apply (begin body ...) args))))
+    (make-parser
+     (delay-parser (begin body ...)))))
 ```
 
 Now we can write:
@@ -280,7 +284,7 @@ So far, we have taken advantage of the fact that many grammars can be translated
 
 Not all grammars are this simple, however. Once we introduce recursion, there is not guarantee that the grammar will translate into a terminating program. Furthermore, grammars can be ambiguous: with several matching alternatives, a string can parsed in multiple, equally valid ways. For simplicity, our `alt` combinator only returned a single result (the first that matched). A more complete implementation would return the *set* of results.
 
-To address these issues, we will rewrite and express our parsers in a more flexible way: *continuation-passing style*. Instead of having our parsers return their results to the caller, they will pass them to a continuation. The continuation then carries on the parsing. All the parsers will have an additional argument for the continuation they are to pass their results to. The continuation itself is a function of one argument. (Racket actually has its own continuations, but we will use functions as continuations to make the implementation more portable.)
+To address these issues, we will rewrite and express our parsers in a more flexible way: *continuation-passing style*. Instead of having our parsers return their results to the caller, they will pass them to a continuation. The continuation then carries on the parsing. All the parsers will have an additional argument for the continuation they are to pass their results to. The continuation itself is a function of one argument. (Racket actually has native continuations, but we will use functions as continuations to make the implementation more portable.)
 
 Let us start by rewriting the `success` parser. Recall the original definition:
 
@@ -390,9 +394,9 @@ To memoize functions written in continuation-passing style, we define a separate
 
 There are two cases to consider: when the memoized function is called for the first time, and when it has been called before. When the function is called for the first time, we insert the original continuation, `cont`, into the table. Then we invoke the function with a custom continuation `(lambda (result) ...)` which in turn will invoke `cont`, as well as any other continuations which may have been inserted into the table in the meantime. We can think of the continuation `(lambda (result ...)` as our "man on the inside": it alone will do the work of being passed into the function and receive its results. Then it broadcasts those results to the continuations on the outside.
 
-Thus, in the second case when the function has been called before, we just insert the continuation into the list of continuations. Our "inside man" will then notify the continuation of new results as they are produced. Meanwhile, we go through the results that have been already produced.
+Thus, in the second case when the function has been called before, we just insert the continuation into the list of continuations. Our "inside man" will then notify the continuation of new results as they are produced. Meanwhile, we go through the results that have already been memoized.
 
-Now we are ready to memoize our parser combinators. We use `memo-cps` for the returned parsers and `memo` for the parser combinators, which doesn't have a continuation. Using `memo` ensures that a particular parser is created only once, so that the same instance is called in two separate branches. This is what allows the branches to cooperate.
+Now we are ready to memoize our parser combinators. We use `memo-cps` for the returned parsers and `memo` for the parser combinators, which don't have a continuation. As before, the use of `memo` is necessary because `delay-parser` delays the combinators to being called at runtime. Memoization guarantees that only a single parser instance is created when a parser is called multiple times.
 
 ```Scheme
 (define succeed
@@ -435,7 +439,7 @@ Now we can define our left-recursive grammar:
        (term "a")))
 ```
 
-Let's parse a string of `"a"`s:
+Let's parse the string `"aaa"`:
 
 ```Scheme
 > (s "aaa" print)
@@ -445,7 +449,53 @@ Let's parse a string of `"a"`s:
 (failure "")
 ```
 
-We get three results before the parser reaches the end of the string and terminates with a failure. It is worthwhile to consider the execution in detail.
+We get three results before the parser reaches the end of the string and terminates with a failure.
+
+Let us now define a more convenient interface for invoking parsers. The `run-parser` function runs a parser with a continuation that collects all successful results in a list, which is then returned. Only results which consume the whole string (with a remainder of `""`) are collected.
+
+```Scheme
+(define (run-parser parser str)
+  (let ((results '()))
+    (parser str (lambda (result)
+                  (match result
+                    [(success tree "")
+                     (set! results (append results (list result)))]
+                    [failure failure])))
+    results))
+```
+
+We can implement an even cleaner interface by exploiting the fact that Racket lets functions have optional arguments. Thus, we can make the continuation argument optional. If the parser is invoked without a continuation, then the default is to use the continuation of `run-parser`. A wrapper for this interface can be defined as follows:
+
+```Scheme
+(define (make-parser parser)
+  (lambda (str (cont #f))
+    (if cont
+        (parser str cont)
+        (run-parser parser str))))
+```
+
+Then we can incorporate this wrapper into the definition of `define-parser`:
+
+```Scheme
+(define-syntax-rule (define-parser parser body ...)
+  (define parser
+    (make-parser
+     (delay-parser (begin body ...)))))
+```
+
+Our parsers can now be invoked in two ways: as a CPS function passing the results to a continuation, or as a regular function returning the results to the caller. For example:
+
+```Scheme
+> (s "aaa")
+  => (list (success '(seq (seq "a" "a") "a") ""))
+```
+
+The parser returns a single result matching the whole input.
+
+Trampoline
+----------
+
+
 
 ----
 
@@ -634,6 +684,7 @@ Code cleanup:
 * Rename `arg` to `str`
 * Define `failure`
 * Simplify `term`?
+* Replace `print` with `displayln`
 
 ----
 

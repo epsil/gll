@@ -8,10 +8,13 @@
 (struct failure (tail) #:transparent)
 
 ;; vacuous
+(define-syntax-rule (delay-parser parser)
+  (lambda args
+    (apply parser args)))
+
 (define-syntax-rule (define-parser parser body ...)
   (define parser
-    (lambda args
-      (apply (begin body ...) args))))
+    (delay-parser (begin body ...))))
 
 ;; memoize
 (define (memo fn)

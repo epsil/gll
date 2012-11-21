@@ -8,10 +8,29 @@
 (struct failure (tail) #:transparent)
 
 ;; vacuous
+(define-syntax-rule (delay-parser parser)
+  (lambda args
+    (apply parser args)))
+
 (define-syntax-rule (define-parser parser body ...)
   (define parser
-    (lambda args
-      (apply (begin body ...) args))))
+    (make-parser
+     (delay-parser (begin body ...)))))
+
+(define (make-parser parser)
+  (lambda (str (cont #f))
+    (if cont
+        (parser str cont)
+        (run-parser parser str))))
+
+(define (run-parser parser str)
+  (let ((results '()))
+    (parser str (lambda (result)
+                  (match result
+                    [(success tree "")
+                     (set! results (append results (list result)))]
+                    [failure failure])))
+    results))
 
 ;;; Memoization
 
@@ -254,4 +273,4 @@
 ;; (sentence '(the professor lectures to the student with the cat) print-line)
 ;; (sentence '(the professor lectures to the student in the class with the cat) print-line)
 
-(s "aaa" print-line)
+(s "aaa")
