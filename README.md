@@ -495,7 +495,34 @@ The parser returns a single result matching the whole input.
 Trampoline
 ----------
 
+A weakness of the current implementation is that the memoized parser results are scattered all over the place. Each parser has its own memoization table, storing the accumulated results from both the current parsing and from previous parsings. This is difficult to maintain and optimize.
 
+Another issue is that when dealing with ambiguous grammars, all the results are produced at once. For such grammars, it would be more flexible to return a lazy stream of results, producing results one at a time. Indeed, an infinitely ambiguous grammar may produce infinitely many results!
+
+The solution is to encapsulate parser results and parser calls in a single structure called a *trampoline*. The trampoline contains a loop that iterates through parser calls and dispatches parsers. Each parser will have an extra `tramp` argument for the trampoline.
+
+We will define the trampoline as a Racket class, with fields and methods. This is just for convenience; we could very well invent a fitting data structure from scratch along with functions for modifying it, like we did with the memoization tables. In the end, the trampoline is just a stateful object passed down from one parser to another.
+
+Here is an outline of our `trampoline%` class. (By convention, class names end with `%`.)
+
+```Scheme
+(define trampoline%
+  (class object% (super-new)
+    (define stack ...)
+    (define table ...)
+
+    (define/public (has-next) ...)
+    (define/public (step) ...)
+    (define/public (push-stack fn . args) ...)
+    (define/public (push fn arg continuation) ...)
+    (define/public (run) ...)))
+```
+
+The trampoline contains two fields, the *stack* and the *table*. The stack contains parser calls, while the table contains memoized values. The fields are modified by the methods `has-next`, `step`, `push-stack`, `push` and `run`.
+
+----
+
+Used in some LISP implementations, a trampoline is a loop that iteratively invokes thunk-returning functions. A single trampoline is sufficient to express all control transfers of a program; a program so expressed is trampolined or in "trampolined style"; converting a program to trampolined style is trampolining. Trampolined functions can be used to implement tail recursive function calls in stack-oriented languages.
 
 ----
 
