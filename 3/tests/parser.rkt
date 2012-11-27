@@ -39,10 +39,17 @@
 
     ;; push a call onto the call stack
     (define/public (push-stack fn . args)
-      (set! stack (mappend stack (mlist (mcons fn args)))))
+      (let ((entry (mcons fn args)))
+        (set! stack (mappend stack (mlist entry)))))
 
     ;; push a parser call onto the call stack
     (define/public (push fn arg continuation)
+      (define (result-subsumed? result entry)
+        (let ((results (mcdr entry))
+              (tail (cdr result)))
+          (mmember #t (mmap (lambda (elt)
+                              (equal? tail (cdr elt)))
+                            results))))
       (let ((memo (massoc fn table))
             (entry #f))
         (unless memo
@@ -56,8 +63,13 @@
           (set! entry (mcdr entry))
           (push-stack fn arg this
                       (lambda (result)
-                        (unless (mmember result (mcdr entry))
+                        (unless (result-subsumed? result entry)
+                          ;; (push-stack
+                          ;;  (lambda (result)
+                          ;;    (set-mcdr! entry (mcons result (mcdr entry))))
+                          ;;  #f)
                           (set-mcdr! entry (mcons result (mcdr entry)))
+                          (push-stack (lambda () #f))
                           (for ((cont (mcar entry)))
                                (push-stack cont result))))))
          (else
@@ -65,6 +77,8 @@
           (set! entry (mcdr entry))
           ;; use memoization here to prevent infinite loops?
           (set-mcar! entry (mappend (mcar entry) (mlist continuation)))
+          (push-stack (lambda () #f))
+          ;; (set-mcar! entry (mappend (mcar entry) (mlist continuation)))
           (for ((result (mcdr entry)))
                (push-stack continuation result))))))
 
@@ -401,7 +415,7 @@
        CME:A
        "c"))
 
-(CME:A "cba")
+(stream-ref (CME:A "cba") 0)
 
 ;; CME*: S ::= A
 ;;          |  B
@@ -426,7 +440,13 @@
        "b"))
 
 ;; non-terminating grammar
-(CME*:S "ab")
+(stream-ref (CME*:S "ab") 1)
+
+(define-parser Z
+  (alt epsilon
+       (seq Z Z)))
+
+(stream-ref (Z "") 0)
 
 ;; SICP
 (define-parser noun

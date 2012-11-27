@@ -1,9 +1,26 @@
 GLL Parsers
 ===========
 
-We'll show how to write a general parser combinator framework which handles left-recursive grammars.
+We'll show how to write a general parser combinator framework which handles left-recursive grammars. For example:
 
-We'll use Racket, which is a dialect of Scheme. Advantages of Racket are ... blah, blah, blah. (Intermediate stages.) In the end, we'll have an implementation which can be easily ported to other languages.
+```Scheme
+(define-parser expr
+  (alt (seq expr (string "+") term)
+       (seq expr (string "-") term)
+       term))
+
+(define-parser term
+  (alt (seq term (string "*") factor)
+       (seq term (string "/") factor)
+       factor))
+
+(define-parser factor
+  (alt (seq (string "(") expr (string ")"))
+       digit))
+
+(define-parser digit
+  (regexp "[0-9]+"))
+```
 
 We'll write the parser in several steps:
 
@@ -33,7 +50,7 @@ First we'll define data types for parse results. A successful result contains tw
 (struct failure (tail) #:transparent)
 ```
 
-This defines `success` and `fail` as constructor functions for parse results. For example, we can create a successful result with the expression `(success tree tail)`, and a failure with `(failure tail)`. We can also *pattern match* against these expressions, which will be demonstrated below. (If we didn't have pattern matching, then we would need to check for a successful result with the function `success?` and extract its parts with the functions `success-tree` and `success-tail`, which are generated automatically.) The `#:transparent` option makes the values printable.
+This defines `success` and `fail` as constructor functions for parse results. For example, we can create a successful result with the expression `(success tree tail)`, and a failure with `(failure tail)`. We can also *pattern match* against these expressions, which will be demonstrated later. (If we didn't have pattern matching, then we would need to check for a successful result with the function `success?` and extract its parts with the functions `success-tree` and `success-tail`, which are generated automatically.) The `#:transparent` option makes the values printable.
 
 Now we can define two trivial parsers: one which accepts any input, and one which accepts no input. The first is often known as the "empty parser", "epsilon" or "return". It can be used to define optional parsings.
 
@@ -63,7 +80,7 @@ If the input matches, then the parser returns a successful result where the `"fo
 
 ```Scheme
 > (foo "foobar")
-  => (success "foo" "bar")
+(success "foo" "bar")
 ```
 
 Parsers of this kind are often called *terminal parsers*, because they match against a terminal expression in the grammar. Let us create a general function for constructing such parsers. The following takes a matching string as input and returns a parser for matching against that string:
@@ -90,12 +107,12 @@ Now that we have some basic parsers, it is time to combine them. The first combi
       [(success tree1 tail1)
        (match (b tail1)
          [(success tree2 tail2)
-          (success (list 'seq tree1 tree2) tail2)]
+          (success (list tree1 tree2) tail2)]
          [failure failure])]
       [failure failure])))
 ```
 
-Here we see Racket's matching facility in action. Initially, we invoke the first parser with `(a str)`, matching against the return value. If we get a successful parse result `(success tree1 tail1)`, then we pass its remainder to the next parser with `(b tail1)`. Again matching against the return value, we check if it is successful. If it is, then we return a combined parse result. In any other case, we return failure. (For simplicity, the combinator only takes two arguments; later we'll write a general version accepting any number of arguments.)
+Here we see Racket's matching facility in action. Initially, we invoke the first parser with `(a str)`, matching against the return value. If we get a successful parse result `(success tree1 tail1)`, then we pass its remainder to the next parser with `(b tail1)`. Again matching against the return value, we check if it is successful. If it is, then we return a combined parse result. In any other case, we return failure.
 
 Using the sequence parser, we can create a parser which matches `"foo"` followed by `"bar"`:
 
@@ -105,11 +122,11 @@ Using the sequence parser, we can create a parser which matches `"foo"` followed
        (term "bar")))
 ```
 
-The result combines the syntax trees from each parser in a list `(seq tree1 tree2)`:
+The result combines the syntax trees from each parser in a list `(tree1 tree2)`:
 
 ```Scheme
 > (foobar "foobar")
-  => (success (seq "foo" "bar") "")
+(success ("foo" "bar") "")
 ```
 
 The next combinator is the *alternatives combinator* (also called the "choice" combinator), which chooses between alternative parsers. Each parser is tried in turn until one of them matches.
@@ -122,7 +139,7 @@ The next combinator is the *alternatives combinator* (also called the "choice" c
       [failure (b str)])))
 ```
 
-If the first parser is successful, we return its result. Otherwise, we invoke the second parser and return that.
+If the first parser is successful, we return its result. Otherwise, we invoke the second parser and return that. (For simplicity, the `alt` and `seq` combinators only take two arguments; later we'll write general versions accepting any number of arguments.)
 
 We can define other combinators in terms of these basic combinators. For example, the *optional combinator* matches a parser zero or one times:
 
@@ -160,15 +177,15 @@ We can parse a sentence with:
 
 ```Scheme
 > (sentence "the professor lectures the student ")
-  => (success '(seq (seq "the " "professor ")
-                    (seq "lectures "
-                         (seq "the " "student ")))
-              "")
+(success '(seq (seq "the " "professor ")
+               (seq "lectures "
+                    (seq "the " "student ")))
+         "")
 > (sentence "not a sentence")
-  => (failure "not a sentence")
+(failure "not a sentence")
 ```
 
-Currently, the syntax tree isn't very informative, but we can see that there is parsing going on.
+Currently, the syntax tree isn't very informative, but we can see that there is definitely parsing going on!
 
 Memoization
 -----------
@@ -226,7 +243,7 @@ Now we can pass each `lambda` to `memo`:
                     [failure (b str)]))))))
 ```
 
-The first use of `memo` memoizes the parser combinator, so that the same parser instance is returned for the same arguments. This is prudent because the combinator may be called several times at runtime due to delayed evaluation. The other use of `memo` memoizes the parser returned by the combinator, preventing re-parsing. We can memoize all the combinators in this way.
+The first use of `memo` memoizes the parser combinator, so that the same parser instance is returned for the same arguments. This is necessary because the combinator may be called several times at runtime due to delayed evaluation (see below). The other use of `memo` memoizes the parser returned by the combinator, preventing re-parsing. We can memoize all the combinators in this way.
 
 There is a final wrinkle to sort out. Because of the way Racket evaluates function arguments, it is currently troublesome to define self-referential grammars:
 
@@ -253,10 +270,9 @@ To make things more convenient, we can create a `delay-parser` macro which autom
   (lambda args
     (apply parser args)))
 
-(define-syntax-rule (define-parser parser body ...)
+(define-syntax-rule (define-parser parser body)
   (define parser
-    (make-parser
-     (delay-parser (begin body ...)))))
+    (delay-parser body)))
 ```
 
 Now we can write:
@@ -334,8 +350,7 @@ These definitions are quite similar to the original. The `seq` combinator, howev
                 (b tail1 (lambda (result)
                            (match result
                              [(success tree2 tail2)
-                              (cont (success (list 'seq tree1 tree2)
-                                             tail2))]
+                              (cont (success (list tree1 tree2) tail2))]
                              [failure (cont failure)])))]
                [failure (cont failure)])))))
 ```
@@ -355,11 +370,11 @@ The continuation will be invoked twice, once for the first parser and once for t
 
 We have now rewritten our parser combinators to continuation-passing style. In itself, this doesn't solve the problems we had with recursive grammars, but it sets the stage for the solution. Observe that while the `alt` combinator produces two results, it doesn't pass them at the same time. The execution is more fine-grained: the combinator creates a separate *branch* for the calculation of each result.
 
-In other words, there is a kind of concurrency here (even if the current implementation is sequential). The key insight is that in a recursive grammar, one branch may depend on another: the recursive branch cannot continue before the base branch has produced a result. Is there a way we can make the branches cooperate?
+In other words, there is a kind of concurrency here (even if the current implementation is sequential). The key insight is that in a recursive grammar, one branch may depend on another: the recursive branch cannot continue before the base branch has produced a result. Is there a way we can make the branches cooperate, regardless of their order of execution?
 
-As it turns out, the answer is memoization! That is because when we memoize a continuation-passing style function, not only do we need to keep track of input values and output values, but also the continuations that are interested in them. Each table entry will contain a list of results (since the function may output more than one value), and a list of continuations (since the same function may be called in different places in a recursive grammar). Thus we can populate results from one branch to another, "reawakening" the interested branch. How do we awaken a branch? By invoking its continuation!
+As it turns out, the answer is memoization! That is because when we memoize a continuation-passing style function, not only do we keep track of input values and output values, but also the continuations that are interested in them. Each table entry will contain a list of results (since the function may output more than one value), and a list of continuations (since the same function may be called in different places). Thus we can populate results from one branch to another, "reawakening" the interested branch. How do we awaken a branch? By invoking its continuation!
 
-To memoize functions written in continuation-passing style, we define a separate `memo-cps` wrapper. For readability, we define a few local functions for modifying a table entry. `push-continuation!` adds a continuation to an entry, `push-result!` adds a result to the entry, and `result-subsumed?` checks if the entry already contains a given result.
+To memoize functions written in continuation-passing style, we define a separate `memo-cps` wrapper. For clarity, we define a few local functions: `push-continuation!` adds a continuation to an entry, `push-result!` adds a result to the entry, `result-subsumed?` checks if the entry already contains a given result, and `make-entry` creates an empty entry.
 
 ```Scheme
 (define (memo-cps fn)
@@ -371,13 +386,16 @@ To memoize functions written in continuation-passing style, we define a separate
     (set-mcdr! entry (mcons result (entry-results entry))))
   (define (result-subsumed? entry result)
     (mmember result (entry-results entry)))
+  (define (make-entry)
+    (mcons (mlist) (mlist)))
   (let ((table (mlist)))
     (lambda (str cont)
       (match (massoc str table)
         ;; first time memoized procedure has been called with str
         [#f
-         (let* ((entry (mcons (mlist cont) '()))
+         (let* ((entry (make-entry))
                 (pair (mcons str entry)))
+           (push-continuation! entry cont)
            (set! table (mcons pair table))
            (fn str
                (lambda (result)
@@ -444,14 +462,14 @@ Let's parse the string `"aaa"`:
 ```Scheme
 > (s "aaa" print)
 (success "a" "aa")
-(success '(seq "a" "a") "a")
-(success '(seq (seq "a" "a") "a") "")
+(success '("a" "a") "a")
+(success '(("a" "a") "a") "")
 (failure "")
 ```
 
-We get three results before the parser reaches the end of the string and terminates with a failure.
+We get three results before the parser reaches the end of the string and terminates with a failure. ...
 
-Let us now define a more convenient interface for invoking parsers. The `run-parser` function runs a parser with a continuation that collects all successful results in a list, which is then returned. Only results which consume the whole string (with a remainder of `""`) are collected.
+It is time to define a more convenient interface for invoking parsers. The `run-parser` function runs a parser with a continuation that collects all successful results in a list, which is then returned. Only results which consume the whole string (with a remainder of `""`) are collected.
 
 ```Scheme
 (define (run-parser parser str)
@@ -464,7 +482,7 @@ Let us now define a more convenient interface for invoking parsers. The `run-par
     results))
 ```
 
-We can implement an even cleaner interface by exploiting the fact that Racket lets functions have optional arguments. Thus, we can make the continuation argument optional. If the parser is invoked without a continuation, then the default is to use the continuation of `run-parser`. A wrapper for this interface can be defined as follows:
+We can implement an even cleaner interface by exploiting the fact that Racket allows functions to have *optional arguments*. Thus, we can make the continuation argument optional. If the parser is invoked without a continuation, then the default is to use the continuation of `run-parser`. A wrapper for this interface can be defined as follows:
 
 ```Scheme
 (define (make-parser parser)
@@ -474,55 +492,390 @@ We can implement an even cleaner interface by exploiting the fact that Racket le
         (run-parser parser str))))
 ```
 
-Then we can incorporate this wrapper into the definition of `define-parser`:
+Then we can incorporate this wrapper into `define-parser`:
 
 ```Scheme
-(define-syntax-rule (define-parser parser body ...)
+(define-syntax-rule (define-parser parser body)
   (define parser
     (make-parser
-     (delay-parser (begin body ...)))))
+     (delay-parser body))))
 ```
 
-Our parsers can now be invoked in two ways: as a CPS function passing the results to a continuation, or as a regular function returning the results to the caller. For example:
+Our parsers can now be invoked in two ways: as a CPS function passing the results to a continuation, or as a regular function returning the results to the caller. Let's try the latter:
 
 ```Scheme
 > (s "aaa")
-  => (list (success '(seq (seq "a" "a") "a") ""))
+(list (success '(("a" "a") "a") ""))
 ```
 
-The parser returns a single result matching the whole input.
+The parser returns a list containing a single result matching the whole input.
 
 Trampoline
 ----------
 
 A weakness of the current implementation is that the memoized parser results are scattered all over the place. Each parser has its own memoization table, storing the accumulated results from both the current parsing and from previous parsings. This is difficult to maintain and optimize.
 
-Another issue is that when dealing with ambiguous grammars, all the results are produced at once. For such grammars, it would be more flexible to return a lazy stream of results, producing results one at a time. Indeed, an infinitely ambiguous grammar may produce infinitely many results!
+Another issue is that when dealing with ambiguous grammars, all the results are produced at once. For such grammars, it would be more flexible to return a lazy stream of results, producing results one at a time. (An infinitely ambiguous grammar may produce infinitely many results!)
 
-The solution is to encapsulate parser results and parser calls in a single structure called a *trampoline*. The trampoline contains a loop that iterates through parser calls and dispatches parsers. Each parser will have an extra `tramp` argument for the trampoline.
+To achieve this, we will encapsulate parser results and parser calls in a shared data structure called a *trampoline*. The trampoline contains a loop that iterates through parser calls and dispatches parsers. Each parser will have an extra `tramp` argument for the trampoline.
 
-We will define the trampoline as a Racket class, with fields and methods. This is just for convenience; we could very well invent a fitting data structure from scratch along with functions for modifying it, like we did with the memoization tables. In the end, the trampoline is just a stateful object passed down from one parser to another.
+We will define the trampoline as a Racket class, with fields and methods. This is just for convenience; we could also piece together a mutable list structure from scratch, like we did with the memoization tables. In the end, the trampoline is just a stateful object passed down from one parser to another.
 
-Here is an outline of our `trampoline%` class. (By convention, class names end with `%`.)
+Here is an outline of our `trampoline%` class (by convention, class names end with `%`):
 
 ```Scheme
 (define trampoline%
   (class object% (super-new)
-    (define stack ...)
-    (define table ...)
+    (define stack (mlist))
+    (define table (mlist))
 
-    (define/public (has-next) ...)
+    (define/public (has-next?) ...)
     (define/public (step) ...)
     (define/public (push-stack fn . args) ...)
     (define/public (push fn arg continuation) ...)
     (define/public (run) ...)))
 ```
 
-The trampoline contains two fields, the *stack* and the *table*. The stack contains parser calls, while the table contains memoized values. The fields are modified by the methods `has-next`, `step`, `push-stack`, `push` and `run`.
+The trampoline contains two fields, the *stack* and the *table*. The stack contains function calls, while the table contains memoized values. Both are mutable lists, modified by the public methods `has-next?`, `step`, `push-stack`, `push` and `run`.
+
+The parsers will be modified to save their execution on the call stack. That is, instead of calling a parser directly, the parser call is pushed onto the stack. The trampoline loop then iterates through the stack until it is exhausted, checking with the `has-next?` method. This method returns true if the stack is nonempty and false if it is empty.
+
+```Scheme
+(define/public (has-next?)
+  (not (empty? stack)))
+```
+
+The `push-stack` method pushes a function call onto the stack. The call is a cons cell `(fn . args)`, containing a function and its arguments.
+
+```Scheme
+(define/public (push-stack fn . args)
+  (let ((call (mcons fn args)))
+    (set! stack (mappend stack (mlist call)))))
+```
+
+The `step` method pops a parser call off the stack and invokes it. We obtain the first element with `(mcar stack)`, matching against it to obtain the function and its arguments. We advance the stack pointer to the next element, and then apply the function to its arguments with `apply`.
+
+```Scheme
+(define/public (step)
+  (when (has-next?)
+    (match (mcar stack)
+      [(mcons fn args)
+       (set! stack (mcdr stack))
+       (apply fn args)])))
+```
+
+Finally, the `run` method repeatedly invokes `step` until the stack is exhausted.
+
+```Scheme
+(define/public (run)
+  (do () ((not (has-next?)))
+    (step)))
+```
+
+The other part of the trampoline is the memoization table, where every parser caches its results. The memoization logic is contained in the `push` method, which works as a memoizing front-end for `push-stack`. It is similar to the `memo-cps` function from earlier, except that it operates on a two-level table. Note that instead of invoking the function directly when called for the first time, the function is passed to `push-stack`.
+
+```Scheme
+(define/public (push fn arg continuation)
+  (define entry-continuations ...)
+  (define entry-results ...)
+  (define (push-continuation! entry cont) ...)
+  (define (push-result! entry result) ...)
+  (define (result-subsumed? entry result) ...)
+  (define (make-entry) ...)
+  (define (table-ref fn str) ...)
+  (let ((entry (table-ref fn arg)))
+    (match entry
+      [(mcons (mlist) (mlist))
+       (push-continuation! entry continuation)
+       (push-stack fn arg this
+                   (lambda (result)
+                     (unless (result-subsumed? entry result)
+                       (set-mcdr! entry (mcons result (mcdr entry)))
+                       (for ((cont (mcar entry)))
+                            (push-stack cont result)))))]
+      [entry
+       (push-continuation! entry continuation)
+       (for ((result (mcdr entry)))
+            (push-stack continuation result))])))
+```
+
+As mentioned, the table has two levels (it is a nested association list). The first level maps parsers to memoization records, and the second level maps input to output. This is all handled by the local `table-ref` function, which automatically creates an empty entry when a function or its input is referenced for the first time.
+
+```Scheme
+(define (table-ref fn str)
+  (let ((pair (massoc fn table)))
+    (match pair
+      [(mcons fn memo)
+       (match (massoc str memo)
+         [(mcons str entry) entry]
+         [#f (let ((entry (make-entry)))
+               (set-mcdr! pair (mcons (mcons str entry) memo))
+               entry)])]
+      [#f (let* ((entry (make-entry))
+                 (memo (mlist (mcons str entry))))
+            (set! table (mcons (mcons fn memo) table))
+            entry)])))
+```
+
+We are now ready to rewrite the parsers. For the most part, this is just a matter of adding an extra argument, `tramp`, for the trampoline. The `succeed`, `fail` and `term` parsers don't use the trampoline at all:
+
+```Scheme
+(define (succeed str tramp cont)
+  (cont (success '() str)))
+
+(define (fail str tramp cont)
+  (cont (failure str)))
+
+(define term
+  (memo
+   (lambda (match)
+     (lambda (str tramp cont)
+       ...))))
+```
+
+The `seq` combinator just passes the `tramp` argument down from one parser to another:
+
+```Scheme
+(define seq
+  (memo
+   (lambda (a b)
+     (lambda (str tramp cont)
+       (a str tramp
+          (lambda (result)
+            (match result
+              [(success tree1 tail1)
+               (b tail1 tramp ...)] ...)))))))
+```
+
+The main changes are in the `alt` combinator. Instead of invoking the alternatives directly, it pushes them on the stack:
+
+```Scheme
+(define alt
+  (memo
+   (lambda (a b)
+     (lambda (str tramp cont)
+       (send tramp push a str cont)
+       (send tramp push b str cont)))))
+```
+
+The `send` function is Racket's way of accessing the methods of a object. To invoke the `push` method of the `tramp` object, we write `(send tramp push ...)` and the method's arguments.
+
+Now we can create a trampoline, pass it to a parser along with a continuation, and invoke the `run` method:
+
+```Scheme
+> (define tramp (new trampoline%))
+> (s "aaa" tramp print)
+> (send tramp run)
+(success "a" "aa")
+(success '("a" "a") "a")
+(success '(("a" "a") "a") "")
+(failure "")
+```
+
+Of course, this is not a very convenient interface, so we will redefine the `run-parser` function to return the successful results as a lazy stream. To that end, we first define a `make-stream` convenience macro, which lets us use the stream constructor `stream-cons` in a simpler manner. The `stream-cons` function takes two expressions, one for producing the first element and one for producing the rest of the stream. Our `make-stream` macro just takes a single expression for producing the stream, which is easier in case we produce multiple results at once.
+
+```Scheme
+(define-syntax-rule (make-stream body ...)
+  (stream-rest
+   (stream-cons '() (begin body ...))))
+```
+
+Now we can define `run-parser` as a call to `make-stream`:
+
+```Scheme
+(define (run-parser parser str)
+  (let ((tramp (new trampoline%))
+        (results '()))
+    (define (compute)
+      (when (send tramp has-next?)
+        (do () ((not (and (empty? results)
+                          (send tramp has-next?))))
+          (send tramp step)))
+      (stream))
+    (define (stream)
+      (let ((result (sequence->stream results)))
+        (set! results (mlist))
+        (if (send tramp has-next?)
+            (stream-append result (make-stream (compute)))
+            result)))
+    (make-stream
+     (parser str tramp
+             (lambda (result)
+               (match result
+                 [(success tree "")
+                  (set! results (append results (list result)))]
+                 [failure failure])))
+     (compute))))
+```
+
+First, we create a new trampoline and an empty `results` list. Then we make a stream which invokes the parser with a continuation that will add successful results to `results`. The local function `compute` is invoked to step through the trampoline's stack until at least one result shows up in `results` or the stack is exhausted. The results are returned lazily by calling the local `stream` function, which creates a stream where the first results are taken from `results`, and the rest are produced by calling `compute` again.
+
+In other words, instead of stepping through the whole call stack at once with the `run` method, `run-parser` performs a more fine-grained execution with `step`. Whenever it obtains a result, it stops execution, unless forced to produce more (and the call stack is not exhausted).
+
+Finally, we can create a cleaner interface where the `tramp` and `cont` arguments are optional:
+
+```Scheme
+(define (make-parser parser)
+  (lambda (str (tramp #f) (cont #f))
+    (if (and tramp cont)
+        (parser str tramp cont)
+        (run-parser parser str))))
+```
+
+When we now invoke our parsers, we get a stream:
+
+```Scheme
+> (s "aaa")
+#<stream>
+```
+
+We can force the stream by converting it to a list:
+
+```Scheme
+> (stream->list (s "aaa"))
+(list (success '(seq (seq "a" "a") "a") ""))
+```
+
+Improvements
+------------
+
+As defined, the `alt` and `seq` functions only take two arguments: we can write `(alt a b)`, but not `(alt a b c)`. We can generalize `alt` by iterating over a rest argument:
+
+```Scheme
+(define alt
+  (memo
+   (lambda parsers
+     (lambda (str tramp cont)
+       (for ((fn parsers))
+            (send tramp push fn str cont))))))
+```
+
+Generalizing `seq` is most easily done with a fold. In essence, we take the binary definition and rename it to a local function `seq2`, swap the arguments around, and then use it to fold up the rest argument. We also adjust the way the combined result is constructed so that we get a flat list `(tree1 tree2 tree3)` instead of `((tree1 tree2) tree3)`.
+
+```Scheme
+(define seq
+  (memo
+   (lambda parsers
+     (define (seq2 b a)
+       (lambda (str tramp cont)
+         (a str tramp
+            (lambda (result)
+              (match result
+                [(success tree1 tail1)
+                 (b tail1 tramp
+                    (lambda (result)
+                      (match result
+                        [(success tree2 tail2)
+                         (cont (success (append tree1 (list tree2))
+                                        tail2))]
+                        [failure (cont failure)])))]
+                [failure (cont failure)])))))
+     (foldl seq2 succeed parsers))))
+```
+
+The *reduce combinator* transforms the abstract syntax tree using a given function.
+
+```Scheme
+(define red
+  (memo
+   (lambda (parser fn)
+     (lambda (str tramp cont)
+       (parser str tramp
+               (lambda (result)
+                 (match result
+                   [(success (list tree ...) tail)
+                    (cont (success (apply fn tree) tail))]
+                   [(success tree tail)
+                    (cont (success (fn tree) tail))]
+                   [failure
+                    (cont failure)])))))))
+```
+
+For convenience, we also define a `regexp` parser:
+
+```Scheme
+(define regexp
+  (memo
+   (lambda (pattern)
+     (lambda (str tramp cont)
+       (match (regexp-match-positions (string-append "^" pattern) str)
+         [(cons (cons beg end) _)
+          (let* ((len (string-length str))
+                 (head (substring str beg end))
+                 (tail (substring str end len)))
+            (cont (success head tail)))]
+         [_ (cont (failure str))])))))
+```
+
+Now we can define a grammar for arithmetic expressions:
+
+```Scheme
+(define-parser expr
+  (alt (red (seq expr (string "+") term)
+            (lambda (a _ b) (+ a b)))
+       (red (seq expr (string "-") term)
+            (lambda (a _ b) (- a b)))
+       term))
+
+(define-parser term
+  (alt (red (seq term (string "*") factor)
+            (lambda (a _ b) (* a b)))
+       (red (seq term (string "/") factor)
+            (lambda (a _ b) (/ a b)))
+       factor))
+
+(define-parser factor
+  (alt (red (seq (string "(") expr (string ")"))
+            (lambda (_ x __) x))
+       digit))
+
+(define-parser digit
+  (red (regexp "[0-9]+")
+       string->number))
+```
+
+----
+
+*Scratch space begins here.*
 
 ----
 
 Used in some LISP implementations, a trampoline is a loop that iteratively invokes thunk-returning functions. A single trampoline is sufficient to express all control transfers of a program; a program so expressed is trampolined or in "trampolined style"; converting a program to trampolined style is trampolining. Trampolined functions can be used to implement tail recursive function calls in stack-oriented languages.
+
+----
+
+Other common combinators are `many` and `many1`, which match the same parser multiple times. We will not cover their definitions here, but instead skip ahead to a complete example. The following implements a simple linguistic grammar taken from SICP:
+
+Let us now look at a complete example. The following implements a simple linguistic grammar taken from SICP:
+
+We can use `foldl` to generalize their definitions:
+
+```Scheme
+(define (alt . parsers)
+  (define (alt2 b a)
+    (lambda (arg)
+      (match (a arg)
+        [(result tree tail) (result tree tail)]
+        [#f (b arg)])))
+  (foldl alt2 (car parsers) (cdr parsers)))
+
+(define (seq . parsers)
+  (lambda parsers
+    (define (seq2 b a)
+      (lambda (arg)
+        (match (a arg)
+          [(result tree1 tail1)
+           (match (b tail1)
+             [(result tree2 tail2)
+              (result (append tree1 (list tree2)) tail2)]
+             [#f #f])]
+          [#f #f])))
+    (define (init arg)
+      (result (list 'seq) arg))
+    (foldl seq2 init parsers)))
+```
+
+We can now write `(alt (term "foo") (term "bar") (term "baz") ...)` and `(seq (term "foo") (term "bar") (term "baz") ...)`. The `(alt . parsers)` syntax is Racket's way of specifying that the whole argument list should be stored in the variable `parsers`. The binary functions `alt2` and `seq2` are local to `alt` and `seq`, respectively. The call to `foldl` "reduces" the argument list to a single value, using the local, binary function to "sum up".
 
 ----
 
@@ -694,14 +1047,14 @@ We can parse a sentence with:
 
 ```Scheme
 > (sentence "the professor lectures the student ")
-  => (success '(sentence (noun-phrase (article "the ")
-                                      (noun "professor "))
-                         (verb-phrase (verb "lectures ")
-                                      (noun-phrase (article "the ")
-                                                   (noun "student "))))
-              "")
+(success '(sentence (noun-phrase (article "the ")
+                                 (noun "professor "))
+                    (verb-phrase (verb "lectures ")
+                                 (noun-phrase (article "the ")
+                                              (noun "student "))))
+         "")
 > (sentence "not a sentence")
-  => (failure "not a sentence")
+(failure "not a sentence")
 ```
 
 ----
@@ -712,6 +1065,16 @@ Code cleanup:
 * Define `failure`
 * Simplify `term`?
 * Replace `print` with `displayln`
+* memo-cps args . fn
+* remove (begin body ...)
+* add `table-ref`
+* rename `term` to `string`?
+* a more fine-grained call stack (in memo code) combined with breadth-first search may suffice to handle infinitely recursive grammars
+* Let `s` be a parser that matches the empty string infinitely many times and let `t` be a terminal parser, for example for the string `"foo"`. Then `(seq s t)` is a parser that will never terminate for some nonparseable input `"bar"`. The first parser produces infinitely many results for the beginning of the string and the second parser always fails for the rest of the string. `s` will never stop producing results because it cannot know that `t` cannot use them. Infinite ambiguity can be curtailed by making `result-subsumed?` inspect the results' tails, but this also affects regular ambiguity.
+
+----
+
+We'll use Racket, which is a dialect of Scheme. Advantages of Racket are ... blah, blah, blah. (Intermediate stages.) In the end, we'll have an implementation which can be easily ported to other languages.
 
 ----
 

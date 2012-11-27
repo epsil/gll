@@ -12,10 +12,10 @@
   (lambda args
     (apply parser args)))
 
-(define-syntax-rule (define-parser parser body ...)
+(define-syntax-rule (define-parser parser body)
   (define parser
     (make-parser
-     (delay-parser (begin body ...)))))
+     (delay-parser body))))
 
 (define (make-parser parser)
   (lambda (str (cont #f))
@@ -95,13 +95,16 @@
     (set-mcdr! entry (mcons result (entry-results entry))))
   (define (result-subsumed? entry result)
     (mmember result (entry-results entry)))
+  (define (make-entry)
+    (mcons (mlist) (mlist)))
   (let ((table (mlist)))
     (lambda (str cont)
       (match (massoc str table)
         ;; first time memoized procedure has been called with str
         [#f
-         (let* ((entry (mcons (mlist cont) '()))
+         (let* ((entry (make-entry))
                 (pair (mcons str entry)))
+           (push-continuation! entry cont)
            (set! table (mcons pair table))
            (fn str
                (lambda (result)
