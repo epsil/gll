@@ -29,7 +29,7 @@
                   (match result
                     [(success tree "")
                      (set! results (append results (list result)))]
-                    [failure failure])))
+                    [_ result])))
     results))
 
 ;;; Memoization
@@ -78,45 +78,46 @@
   (let ((alist (mlist)))
     (lambda args
       (match (massoc args alist)
-        [(mcons args result)
-         result]
-        [#f
-         (let* ((result (apply fn args))
-                (entry (mcons args result)))
-           (set! alist (mcons entry alist))
-           result)]))))
+        [(mcons args result) result]
+        [_ (let* ((result (apply fn args))
+                  (entry (mcons args result)))
+             (set! alist (mcons entry alist))
+             result)]))))
 
 (define (memo-cps fn)
-  (define entry-continuations mcar)
-  (define entry-results mcdr)
-  (define (push-continuation! entry cont)
-    (set-mcar! entry (mappend (entry-continuations entry) (mlist cont))))
-  (define (push-result! entry result)
-    (set-mcdr! entry (mcons result (entry-results entry))))
-  (define (result-subsumed? entry result)
-    (mmember result (entry-results entry)))
-  (define (make-entry)
-    (mcons (mlist) (mlist)))
   (let ((table (mlist)))
-    (lambda (str cont)
+    (define entry-continuations mcar)
+    (define entry-results mcdr)
+    (define (push-continuation! entry cont)
+      (set-mcar! entry (mappend (entry-continuations entry) (mlist cont))))
+    (define (push-result! entry result)
+      (set-mcdr! entry (mcons result (entry-results entry))))
+    (define (result-subsumed? entry result)
+      (mmember result (entry-results entry)))
+    (define (make-entry)
+      (mcons (mlist) (mlist)))
+    (define (table-ref str)
       (match (massoc str table)
-        ;; first time memoized procedure has been called with str
-        [#f
-         (let* ((entry (make-entry))
-                (pair (mcons str entry)))
+        [(mcons str entry) entry]
+        [_ (let ((entry (make-entry)))
+             (set! table (mcons (mcons str entry) table))
+             entry)]))
+    (lambda (str cont)
+      (let ((entry (table-ref str)))
+        (match entry
+          ;; first time memoized procedure has been called with str
+          [(mcons (mlist) (mlist))
            (push-continuation! entry cont)
-           (set! table (mcons pair table))
-           (fn str
-               (lambda (result)
-                 (unless (result-subsumed? entry result)
-                   (push-result! entry result)
-                   (for ((cont (entry-continuations entry)))
-                        (cont result))))))]
-        ;; memoized procedure has been called with str before
-        [(mcons str entry)
-         (push-continuation! entry cont)
-         (for ((result (entry-results entry)))
-              (cont result))]))))
+           (fn str (lambda (result)
+                     (unless (result-subsumed? entry result)
+                       (push-result! entry result)
+                       (for ((cont (mcar entry)))
+                            (cont result)))))]
+          ;; memoized procedure has been called with str before
+          [_
+           (push-continuation! entry cont)
+           (for ((result (mcdr entry)))
+                (cont result))])))))
 
 ;;; Parser combinators
 
@@ -185,7 +186,7 @@
    (lambda (str cont)
      (cont (failure str)))))
 
-(define term
+(define string
   (memo
    (lambda (match)
      (memo-cps
@@ -265,8 +266,8 @@
 ;;        (term a)))
 
 (define-parser s
-  (alt (seq s (term "a"))
-       (term "a")))
+  (alt (seq s (string "a"))
+       (string "a")))
 
 (define (print-line arg)
   (print arg)

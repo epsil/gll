@@ -74,15 +74,17 @@
                   entry)])))
       (let ((entry (table-ref fn str)))
         (match entry
+          ;; first time memoized procedure has been called with str
           [(mcons (mlist) (mlist))
            (push-continuation! entry cont)
            (push-stack fn str this
                        (lambda (result)
                          (unless (result-subsumed? entry result)
-                           (set-mcdr! entry (mcons result (mcdr entry)))
+                           (push-result! entry result)
                            (for ((cont (mcar entry)))
                                 (cont result)))))]
-          [entry
+          ;; memoized procedure has been called with str before
+          [_
            (push-continuation! entry cont)
            (for ((result (mcdr entry)))
                 (cont result))])))
@@ -274,7 +276,7 @@
 (define (fail str tramp cont)
   (cont (failure str)))
 
-(define term
+(define string
   (memo
    (lambda (match)
      (lambda (str tramp cont)
@@ -360,6 +362,12 @@
                    [failure
                     (cont failure)])))))))
 
+;; (define tag
+;;   (memo
+;;    (lambda (parser t)
+;;      (red parser (lambda tree (append (list t) tree))))))
+
+
 ;; (define reduce
 ;;   (memo
 ;;    (lambda (parser func)
@@ -385,12 +393,32 @@
 ;; (define (tag parser t)
 ;;   (red parser (lambda tree (append (list t) tree))))
 
+(define (tag parser t)
+  (red parser (lambda tree
+                ;; (list t tree)
+                (displayln "tree is: ")
+                (displayln tree)
+                (cond
+                 ((string? tree)
+                  (list t tree))
+                 ((= (length tree) 1)
+                  (list t tree))
+                 (else
+                  (append (list t) tree)))
+                ;; (match tree
+                ;;   [(list tree)
+                ;;    (unless (string? tree)
+                ;;      (displayln (length tree)))
+                ;;    (list t tree)]
+                ;;   [_ (append (list t) tree)])
+                )))
+
 ;; Tests
 
 (define-parser s
-  (alt (seq s (term "a") (term "b") (term "c"))
-       (seq (term "a") (term "b") (term "c"))
-       (seq (term "d") (term "e") (term "f"))))
+  (alt (seq s (string "a") (string "b") (string "c"))
+       (seq (string "a") (string "b") (string "c"))
+       (seq (string "d") (string "e") (string "f"))))
 
 (define (print-line arg)
   (print arg)
@@ -410,28 +438,25 @@
 (stream->list (number "2324"))
 
 ;; (define-parser expr
-;;   (alt (red (seq expr (term "+") expr)
+;;   (alt (red (seq expr (string "+") expr)
 ;;             (lambda (a op b) (+ a b)))
-;;        (red (seq expr (term "-") expr)
+;;        (red (seq expr (string "-") expr)
 ;;             (lambda (a op b) (- a b)))
 ;;        (red (seq "(" expr ")")
 ;;             (lambda (_ x __) x))
 ;;        num))
 
-(define-parser expr
-  (alt (red (seq expr (term "+") num)
-            (lambda (a _ b) (+ a b)))
-       (red (seq expr (term "-") num)
-            (lambda (a _ b) (- a b)))
-       (red (seq (term "(") expr (term ")"))
-            (lambda (_ x __) x))
-       num))
+;; (define-parser expr
+;;   (alt (red (seq expr (string "+") num)
+;;             (lambda (a _ b) (+ a b)))
+;;        (red (seq expr (string "-") num)
+;;             (lambda (a _ b) (- a b)))
+;;        (red (seq (string "(") expr (string ")"))
+;;             (lambda (_ x __) x))
+;;        num))
 
-(define-parser num
-  (red (regexp "[0-9]+") string->number))
-
-(stream->list (expr "1-2+3"))
-(expr "1-2+3")
+;; (define-parser num
+;;   (red (regexp "[0-9]+") string->number))
 
 ;; CPTT p. 49:
 ;; expr   -> expr + term
@@ -440,7 +465,7 @@
 ;; term   -> term * factor
 ;;         | term / factor
 ;;         | factor
-;; factor -> digit
+;; factor -> num
 ;;         | ( expr )
 
 ;; (define-parser expr
@@ -453,8 +478,8 @@
 ;;        factor))
 ;; (define-parser factor
 ;;   (alt (seq (string "(") expr (string ")"))
-;;        digit))
-;; (define-parser digit
+;;        num))
+;; (define-parser num
 ;;   (regexp "[0-9]+"))
 
 ;; (define-parser expr
@@ -474,8 +499,105 @@
 ;; (define-parser factor
 ;;   (alt (red (seq (string "(") expr (string ")"))
 ;;             (lambda (_ x __) x))
-;;        digit))
+;;        num))
 ;;
-;; (define-parser digit
+;; (define-parser num
 ;;   (red (regexp "[0-9]+")
 ;;        string->number))
+
+
+;; expr -> expr "+" num
+;;       | expr "-" num
+;;       | num
+;; num -> "0" | "1"
+
+;; (define-parser expr
+;;   (alt (seq expr (string "+") num)
+;;        (seq expr (string "-") num)
+;;        num))
+;; (define-parser num
+;;   (alt (string "0") (string "1")))
+
+(define-parser expr
+  (alt (red (seq expr (string "+") term)
+            (lambda (a _ b) (+ a b)))
+       (red (seq expr (string "-") term)
+            (lambda (a _ b) (- a b)))
+       term))
+
+(define-parser term
+  (alt (red (seq term (string "*") factor)
+            (lambda (a _ b) (* a b)))
+       (red (seq term (string "/") factor)
+            (lambda (a _ b) (/ a b)))
+       factor))
+
+(define-parser factor
+  (alt (red (seq (string "(") expr (string ")"))
+            (lambda (_ x __) x))
+       num))
+
+(define-parser num
+  (red (regexp "[0-9]+")
+       string->number))
+
+(displayln "Testing arithmetic interpreter ...")
+
+(stream->list (expr "1*2+3*4"))
+(stream->list (expr "9-(5+2)"))
+
+(define-parser noun
+  (tag (alt (string "student ")
+            (string "professor ")
+            (string "cat ")
+            (string "class "))
+       'noun))
+
+(define-parser verb
+  (tag (alt (string "studies ")
+            (string "lectures ")
+            (string "eats ")
+            (string "sleeps "))
+       'verb))
+
+(define-parser article
+  (tag (alt (string "the ")
+            (string "a ")
+            (string "an "))
+       'article))
+
+(define-parser preposition
+  (tag (alt (string "for ")
+            (string "to ")
+            (string "in ")
+            (string "by ")
+            (string "with "))
+       'preposition))
+
+(define-parser simple-noun-phrase
+  (tag (seq article noun)
+       'simple-noun-phrase))
+
+(define-parser noun-phrase
+  (tag (alt (seq noun-phrase prep-phrase)
+            simple-noun-phrase)
+       'noun-phrase))
+
+(define-parser verb-phrase
+  (tag (alt (seq verb-phrase prep-phrase)
+            verb)
+       'verb-phrase))
+
+(define-parser prep-phrase
+  (tag (seq preposition noun-phrase)
+       'prep-phrase))
+
+(define-parser sentence
+  (tag (seq noun-phrase verb-phrase)
+       'sentence))
+
+;;; Tests
+
+;; (sentence "the student with the cat sleeps in the class ")
+;; (sentence "the professor lectures to the student with the cat ")
+(stream->list (sentence "the professor lectures to the student in the class with the cat "))

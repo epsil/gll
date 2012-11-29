@@ -21,13 +21,11 @@
   (let ((alist (mlist)))
     (lambda args
       (match (massoc args alist)
-        [(mcons args result)
-         result]
-        [#f
-         (let* ((result (apply fn args))
-                (entry (mcons args result)))
-           (set! alist (mcons entry alist))
-           result)]))))
+        [(mcons args result) result]
+        [_ (let* ((result (apply fn args))
+                  (entry (mcons args result)))
+             (set! alist (mcons entry alist))
+             result)]))))
 
 ;; empty/epsilon/return
 (define (succeed str)
@@ -37,7 +35,7 @@
   (failure str))
 
 ;; terminal
-(define term
+(define string
   (memo (lambda strs
           (define (term1 match)
             (lambda (str)
@@ -49,7 +47,7 @@
                     (failure str)))))
           (memo (apply alt (map term1 strs))))))
 
-(define term-rewritten
+(define string-rewritten
   (memo (lambda strs
           (define (term1 match)
             (lambda (str)
@@ -69,7 +67,7 @@
         (success head tail)
         (failure str))))
 
-(define (term+ match)
+(define (string+ match)
   (lambda (str)
     (let* ((len (min (string-length str) (string-length match)))
            (head (substring str 0 len))
@@ -78,7 +76,7 @@
           (success head tail)
           (failure str)))))
 
-(define term*
+(define string*
   (memo (lambda (match)
           (memo (lambda (str)
                   (let* ((len (min (string-length str) (string-length match)))
@@ -242,16 +240,16 @@
 ;;      (term "bar"))
 
 (define article
-  (alt (term "the ")
-       (term "a ")))
+  (alt (string "the ")
+       (string "a ")))
 
 (define noun
-  (alt (term "student ")
-       (term "professor ")))
+  (alt (string "student ")
+       (string "professor ")))
 
 (define verb
-  (alt (term "studies ")
-       (term "lectures ")))
+  (alt (string "studies ")
+       (string "lectures ")))
 
 (define noun-phrase
   (seq article noun))
@@ -277,7 +275,7 @@
 
 
 (define test-many
-  (many (term "a")))
+  (many (string "a")))
 (print (test-many "aaaaa"))
 (newline)
 (sentence "")
@@ -290,14 +288,14 @@
 ;;     ((alt (seq s "a") "a") str)))
 
 (define-parser s
-  (alt (seq (term "a") s)
-       (term "a")))
+  (alt (seq (string "a") s)
+       (string "a")))
 
 (s "aaa")
 
 (define-parser t
-  (alt (seq t (term "a"))
-       (term "a")))
+  (alt (seq t (string "a"))
+       (string "a")))
 
 ;; (t "aaa")
 
