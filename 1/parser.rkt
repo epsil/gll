@@ -1,96 +1,94 @@
-#! /usr/bin/racket
 #lang racket
 
-;; list version of set-union
-(define (union . sets)
-  (reverse (set->list (apply set-union (map list->set sets)))))
+;;; Simple parser combinators
 
-;;; Memoization
+(require racket/mpair)
+
+(struct success (val rest) #:transparent)
+(struct failure (rest) #:transparent)
+
+(define-syntax-rule (delay-parser parser)
+  (lambda args
+    (apply parser args)))
+
+(define-syntax-rule (define-parser parser body)
+  (define parser
+    (delay-parser body)))
 
 (define (memo fn)
-  (let ((alist '()))
+  (let ((alist (mlist)))
     (lambda args
-      (let ((entry (assoc args alist)))
-        (if entry
-            (cdr entry)
-            (let ((result (apply fn args)))
-              (set! alist (cons (cons args result) alist))
-              result))))))
+      (match (massoc args alist)
+        [(mcons args result) result]
+        [_ (let* ((result (apply fn args))
+                  (entry (mcons args result)))
+             (set! alist (mcons entry alist))
+             result)]))))
 
-;;; Parser combinators
-
-(define-syntax-rule (define-parser parser body ...)
-  (define parser
-    (memo
-     (lambda (p)
-       (map (lambda (r)
-              (cons (cons 'parser (cdr (car r)))
-                    (cdr r)))
-            ((begin body ...) p))))))
-
-(define-syntax-rule (term X ...)
+(define succeed
   (memo
-   (lambda (p)
-     (if (and (pair? p)
-              (member (car p) '(X ...)))
-         (list (cons (list 'term (car p)) (cdr p)))
-         '()))))
+   (lambda (val)
+     (memo
+      (lambda (str)
+        (success val str))))))
 
-(define-syntax-rule (seq A ...)
+(define string
   (memo
-   (lambda (p)
-     (foldl (lambda (fn v)
-              (foldl union '()
-                     (map (lambda (prev)
-                            (map (lambda (next)
-                                   (cons (append (car prev)
-                                                 (list (car next)))
-                                         (cdr next)))
-                                 (fn (cdr prev))))
-                          v)))
-            (list (cons '(seq) p))
-            (list A ...)))))
+   (lambda (match)
+     (memo
+      (lambda (str)
+        (let* ((len (min (string-length str) (string-length match)))
+               (head (substring str 0 len))
+               (tail (substring str len)))
+          (if (equal? head match)
+              (success head tail)
+              (failure str))))))))
 
-(define-syntax-rule (alt A ...)
+(define (bind p fn)
+  (lambda (str)
+    (match (p str)
+      [(success val rest)
+       ((fn val) rest)]
+      [failure failure])))
+
+(define seq
   (memo
-   (lambda (p)
-     (foldl (lambda (fn v)
-              (union v (fn p)))
-            '()
-            (list A ...)))))
+   (lambda (a b)
+     (memo
+      (bind a (lambda (x)
+                (bind b (lambda (y)
+                          (succeed (list x y))))))))))
 
-(define-syntax-rule (opt A)
-  (alt epsilon A))
+(define alt
+  (memo
+   (lambda (a b)
+     (memo
+      (lambda (str)
+        (let ((result (a str)))
+          (match result
+            [(success val rest) result]
+            [failure (b str)])))))))
 
-(define-syntax-rule (k* A)
-  (alt epsilon
-       (seq A (k* A))))
+(define-parser article
+  (alt (string "the ")
+       (string "a ")))
 
-;;; Parsers
+(define-parser noun
+  (alt (string "student ")
+       (string "professor ")))
 
-(define epsilon list)
+(define-parser verb
+  (alt (string "studies ")
+       (string "lectures ")))
 
-;; article
-(define-parser DET (term the a))
+(define-parser noun-phrase
+  (seq article noun))
 
-;; noun
-(define-parser N (term student professor cat class))
+(define-parser verb-phrase
+  (seq verb noun-phrase))
 
-;; noun phrase
-(define-parser NP (seq DET N))
+(define-parser sentence
+  (seq noun-phrase verb-phrase))
 
-;; verb
-(define-parser V (term studies lectures eats sleeps))
-
-;; sentence
-(define-parser S (seq NP VP))
-
-;; verb phrase: VP -> V NP | V S
-(define-parser VP
-  (alt (seq V NP)
-       (seq V S)))
-
-;;; Test
-
-(S '(the professor lectures the student))
-(S '(the student studies the cat intently))
+(sentence "the professor lectures the student ")
+(sentence "not a sentence ")
