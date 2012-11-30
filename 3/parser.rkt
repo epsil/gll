@@ -1,463 +1,217 @@
-#! /usr/bin/racket
 #lang racket
+
+;;; Trampolined dispatch
 
 (require racket/mpair)
 (require racket/stream)
 
-;;; Memoization
+(struct success (val rest) #:transparent)
+(struct failure (rest) #:transparent)
 
-(define (memo fn)
-  (let ((alist '()))
-    (lambda args
-      (let ((entry (assoc args alist)))
-        (if entry
-            (cdr entry)
-            (let ((result (apply fn args)))
-              (set! alist (cons (cons args result) alist))
-              result))))))
+(define-syntax-rule (delay-parser parser)
+  (lambda args
+    (apply parser args)))
 
-;;; Trampoline
+(define-syntax-rule (define-parser parser body)
+  (define parser
+    (make-parser
+     (delay-parser body))))
 
-(define trampoline%
-  (class object% (super-new)
-
-    (define stack (mlist))
-    (define table (mlist))
-
-    ;; whether the call stack is empty
-    (define/public (has-next)
-      (not (empty? stack)))
-
-    ;; pop a call off the call stack
-    (define/public (step)
-      (when (has-next)
-        (let* ((call (mcar stack))
-               (fn (mcar call))
-               (args (mcdr call)))
-          (set! stack (mcdr stack))
-          (apply fn args))))
-
-    ;; push a call onto the call stack
-    (define/public (push-stack fn . args)
-      (set! stack (mappend stack (mlist (mcons fn args)))))
-
-    ;; push a parser call onto the call stack
-    (define/public (push fn arg continuation)
-      (let ((memo (massoc fn table))
-            (entry #f))
-        (unless memo
-          (set! memo (mcons fn (mlist)))
-          (set! table (mcons memo table)))
-        (set! entry (massoc arg (mcdr memo)))
-        (cond
-         ((not entry)
-          (set! entry (mcons arg (mcons (mlist continuation) (mlist))))
-          (set-mcdr! memo (mcons entry (mcdr memo)))
-          (set! entry (mcdr entry))
-          (push-stack fn arg this
-                      (lambda (result)
-                        (unless (mmember result (mcdr entry))
-                          (set-mcdr! entry (mcons result (mcdr entry)))
-                          (for ((cont (mcar entry)))
-                               (push-stack cont result))))))
-         (else
-          ;; function has been called with arg before
-          (set! entry (mcdr entry))
-          ;; use memoization here to prevent infinite loops?
-          (set-mcar! entry (mappend (mcar entry) (mlist continuation)))
-          (for ((result (mcdr entry)))
-               (push-stack continuation result))))))
-
-    ;; run through the call stack
-    (define/public (run)
-      (do () ((not (has-next)))
-        (step)))))
-
-;;; Parser combinators
-
-;; seriously, racket?
 (define-syntax-rule (make-stream body ...)
   (stream-rest
    (stream-cons '() (begin body ...))))
 
-(define parser-tag (make-parameter 'parser))
+(define (make-parser parser)
+  (lambda (str (tramp #f) (cont #f))
+    (if (and tramp cont)
+        (parser str tramp cont)
+        (run-parser parser str))))
 
-(define-syntax-rule (make-parser (arg trampoline continuation) body ...)
-  (lambda (arg (trampoline #f) (continuation #f))
-    (let* ((results (if trampoline #f (mlist)))
-           (trampoline (or trampoline (new trampoline%)))
-           (continuation
-            (or continuation
-                (lambda (result)
-                  (when (string=? "" (cdr result))
-                    (set! results (mcons (car result) results)))))))
-      (letrec ((compute
-                (lambda ()
-                  (when (send trampoline has-next)
-                    (do () ((or (not (empty? results))
-                                (not (send trampoline has-next))))
-                      (send trampoline step)))
-                  (let ((stream (sequence->stream results)))
-                    (set! results (mlist))
-                    (if (send trampoline has-next)
-                        (stream-append stream (make-stream (compute)))
-                        stream)))))
-        (if results
-            (make-stream
-             (begin body ...)
-             (compute))
-            (begin body ...))))))
+(define (run-parser parser str)
+  (let ((tramp (new trampoline%))
+        (results '()))
+    (define (compute)
+      (when (send tramp has-next?)
+        (do () ((not (and (empty? results)
+                          (send tramp has-next?))))
+          (send tramp step)))
+      (stream))
+    (define (stream)
+      (let ((result (sequence->stream results)))
+        (set! results (mlist))
+        (if (send tramp has-next?)
+            (stream-append result (make-stream (compute)))
+            result)))
+    (make-stream
+     (parser str tramp
+             (lambda (result)
+               (match result
+                 [(success val "")
+                  (set! results (cons result results))]
+                 [failure failure])))
+     (compute))))
 
-(define-syntax-rule (define-parser parser body ...)
-  (define parser
-    (make-parser
-     (arg trampoline continuation)
-     (parameterize ((parser-tag 'parser))
-       ;; handle (define-parser "foo" 'string->symbol)
-       (let ((fn (implicit-conversion (begin body ...))))
-         (fn arg trampoline continuation))))))
+(define (memo fn)
+  (let ((alist (mlist)))
+    (lambda args
+      (match (massoc args alist)
+        [(mcons args result) result]
+        [_ (let* ((result (apply fn args))
+                  (entry (mcons args result)))
+             (set! alist (mcons entry alist))
+             result)]))))
 
-(define terminal
+(define trampoline%
+  (class object% (super-new)
+    (define stack (mlist))
+    (define table (mlist))
+
+    (define/public (has-next?)
+      (not (empty? stack)))
+
+    (define/public (step)
+      (when (has-next?)
+        (match (mcar stack)
+          [(mcons fn args)
+           (set! stack (mcdr stack))
+           (apply fn args)])))
+
+    (define/public (push-stack fn . args)
+      (let ((call (mcons fn args)))
+        (set! stack (mcons call stack))))
+
+    (define/public (push fn str cont)
+      (define entry-continuations mcar)
+      (define entry-results mcdr)
+      (define (push-continuation! entry cont)
+        (set-mcar! entry (mcons cont (entry-continuations entry))))
+      (define (push-result! entry result)
+        (set-mcdr! entry (mcons result (entry-results entry))))
+      (define (result-subsumed? entry result)
+        (mmember result (entry-results entry)))
+      (define (make-entry)
+        (mcons (mlist) (mlist)))
+      (define (table-ref fn str)
+        (let ((pair (massoc fn table)))
+          (match pair
+            [(mcons fn memo)
+             (match (massoc str memo)
+               ;; parser has been called with str before
+               [(mcons str entry) entry]
+               ;; first time parser has been called with str
+               [_ (let ((entry (make-entry)))
+                    (set-mcdr! pair (mcons (mcons str entry) memo))
+                    entry)])]
+            ;; first time parser has been called
+            [_ (let* ((entry (make-entry))
+                      (memo (mlist (mcons str entry))))
+                 (set! table (mcons (mcons fn memo) table))
+                 entry)])))
+      (let ((entry (table-ref fn str)))
+        (match entry
+          [(mcons (mlist) (mlist))
+           (push-continuation! entry cont)
+           ;; push the parser on the stack
+           (push-stack fn str this
+                       (lambda (result)
+                         (unless (result-subsumed? entry result)
+                           (push-result! entry result)
+                           (for ((cont (entry-continuations entry)))
+                                (cont result)))))]
+          [_
+           (push-continuation! entry cont)
+           (for ((result (entry-results entry)))
+                (cont result))])))
+
+    (define/public (run)
+      (do () ((not (has-next?)))
+        (step)))))
+
+(define succeed
+  (memo
+   (lambda (val)
+     (lambda (str tramp cont)
+       (cont (success val str))))))
+
+(define string
   (memo
    (lambda (match)
-     (let ((length (string-length match)))
-       (lambda (arg trampoline continuation)
-         (when (and (string? arg)
-                    (<= length (string-length arg))
-                    (string=? match (substring arg 0 length)))
-           (continuation
-            (cons match (substring arg length)))))))))
+     (lambda (str tramp cont)
+       (let* ((len (min (string-length str) (string-length match)))
+              (head (substring str 0 len))
+              (tail (substring str len)))
+         (if (equal? head match)
+             (cont (success head tail))
+             (cont (failure tail))))))))
 
-(define (implicit-conversion parser)
-  (if (string? parser)
-      (term parser)
-      parser))
-
-;; semantic action
-(define reduce
+(define regexp
   (memo
-   (lambda (parser func)
-     (if (null? func)
-         parser
-         (make-parser
-          (arg trampoline continuation)
-          (parser arg trampoline
-                  (lambda (r)
-                    (let ((result (car r))
-                          (tail (cdr r)))
-                      (continuation
-                       (cons (cond
-                              ((null? result)
-                               (list func))
-                              ((and (list? result)
-                                    (equal? (car result) 'seq))
-                               (cons func (cdr result)))
-                              (else
-                               (list func result)))
-                             tail))))))))))
+   (lambda (pattern)
+     (lambda (str tramp cont)
+       (match (regexp-match-positions (string-append "^" pattern) str)
+         [(cons (cons beg end) _)
+          (let* ((len (string-length str))
+                 (head (substring str beg end))
+                 (tail (substring str end len)))
+            (cont (success head tail)))]
+         [_ (cont (failure str))])))))
 
-;; sequence
-(define sequence
+(define (bind p fn)
+  (lambda (str tramp cont)
+    (p str tramp
+       (lambda (result)
+         (match result
+           [(success val rest)
+            ((fn val) rest tramp cont)]
+           [failure
+            (cont failure)])))))
+
+(define seq
   (memo
    (lambda parsers
-     (make-parser
-      (arg trampoline continuation)
-      (let* ((parsers (map implicit-conversion parsers))
-             (fn (car parsers))
-             (cont
-              (foldr
-               (lambda (fn continuation)
-                 (lambda (r)
-                   (let ((result (car r)))
-                     (fn (cdr r)
-                         trampoline
-                         (lambda (r)
-                           (continuation
-                            (cons (append result
-                                          (list (car r)))
-                                  (cdr r))))))))
-               continuation
-               (cdr parsers))))
-        (fn arg trampoline
-            (lambda (r)
-              (cont (cons (list 'seq (car r))
-                          (cdr r))))))))))
+     (define (seq2 b a)
+       (bind a (lambda (x)
+                 (bind b (lambda (y)
+                           (succeed (append x (list y))))))))
+     (foldl seq2 (succeed '()) parsers))))
 
-;; alternatives
-(define alternatives
+(define alt
   (memo
    (lambda parsers
-     (make-parser
-      (arg trampoline continuation)
-      (let ((parsers (map implicit-conversion parsers)))
-        (for ((fn parsers))
-             (send trampoline push fn arg continuation)))))))
+     (lambda (str tramp cont)
+       (for ((fn parsers))
+            (send tramp push fn str cont))))))
 
-(define maybe
+(define red
   (memo
-   (lambda (parser)
-     (alt epsilon parser))))
+   (lambda (p fn)
+     (bind p (lambda (val)
+               (match val
+                 [(list val ...) (succeed (apply fn val))]
+                 [_ (succeed (fn val))]))))))
 
-(define many
-  (memo
-   (lambda (parser)
-     (alt epsilon
-          (seq parser (many parser))))))
-
-(define many1
-  (memo
-   (lambda (parser)
-     (seq parser (many parser)))))
-
-;; DSL
-(define-syntax red
-  (syntax-rules (tag)
-    [(red a 'tag)
-     (reduce a (parser-tag))]
-    [(red a b)
-     (reduce a b)]))
-
-(define-syntax seq
-  (syntax-rules ()
-    [(seq a ... 'x)
-     (red (sequence a ...) 'x)]
-    [(seq a ...)
-     (red (sequence a ...) 'list)]))
-
-(define-syntax alt
-  (syntax-rules ()
-    [(alt a ... 'x)
-     (red (alternatives a ...) 'x)]
-    [(alt a ...)
-     (alternatives a ...)]))
-
-(define-syntax term
-  (syntax-rules ()
-    [(term a ... 'x)
-     (red (terminal a ...) 'x)]
-    [(term a ...)
-     (terminal a ...)]))
-
-;;; Parsers
-
-(define (epsilon arg trampoline continuation)
-  (continuation (cons '() arg)))
-
-;;; Grammars
-
-;; expr ::= expr op expr
-;;       |  num
-;;  num ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
-;;   op ::= + | -
 (define-parser expr
-  (alt (seq expr op expr '(lambda (a op b) (eval `(,op ,a ,b))))
-       (seq "(" expr ")" '(lambda (_ x __) x))
+  (alt (red (seq expr (string "+") term)
+            (lambda (x _ y) (+ x y)))
+       (red (seq expr (string "-") term)
+            (lambda (x _ y) (- x y)))
+       term))
+
+(define-parser term
+  (alt (red (seq term (string "*") factor)
+            (lambda (x _ y) (* x y)))
+       (red (seq term (string "/") factor)
+            (lambda (x _ y) (/ x y)))
+       factor))
+
+(define-parser factor
+  (alt (red (seq (string "(") expr (string ")"))
+            (lambda (_ x __) x))
        num))
 
 (define-parser num
-  (alt "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" 'string->number))
+  (red (regexp "[0-9]+")
+       string->number))
 
-(define-parser op
-  (alt "+" "-" 'string->symbol))
-
-(map eval (stream->list (expr "1+2+3")))
-(map eval (stream->list (expr "1-2+3")))
-
-;; R: S ::= a S
-;;       |  a
-;;       |  epsilon
-(define-parser R:S
-  (alt (seq "a" R:S '())
-       "a"
-       epsilon
-       'tag))
-
-(stream->list (R:S "aaa"))
-
-;; R*: S ::= A S a
-;;        |  a
-;;     A ::= epsilon
-;;
-;; AKA:
-;;
-;;     A ::= B A a
-;;        |  a
-;;     B ::= epsilon
-(define-parser R*:S
-  (alt (seq R*:A R*:S "a")
-       "a"))
-
-(define-parser R*:A
-  epsilon)
-
-(R*:S "aaa")
-
-;; L: S ::= S a
-;;       |  a
-(define-parser L:S
-  (alt (seq L:S "a")
-       "a"))
-
-(L:S "aaa")
-
-;; L0: S ::= A S d
-;;        |  B s
-;;        |  epsilon
-;;     A ::= a
-;;        |  c
-;;     B ::= a
-;;        |  b
-(define-parser L0:S
-  (alt (seq L0:A L0:S "d")
-       (seq L0:B L0:S)
-       epsilon))
-
-(define-parser L0:A
-  (alt "a" "c"))
-
-(define-parser L0:B
-  (alt "a" "b"))
-
-(L0:S "aaa")
-
-;; L1: S ::= C a
-;;        |  d
-;;     B ::= epsilon
-;;        |  a
-;;     C ::= b
-;;        |  B C b
-(define-parser L1:S
-  (alt (seq L1:C "a")
-       "d"))
-
-(define-parser L1:B
-  (alt epsilon
-       "a"))
-
-(define-parser L1:C
-  (alt "b"
-       (seq L1:B L1:C "b")
-       (seq "b" "b")))
-
-(L1:S "ba")
-
-;; L2: S ::= S S S
-;;        |  S S
-;;        |  a
-(define-parser L2:S
-  (alt "b"
-       (seq L2:S L2:S)
-       (seq L2:S L2:S L2:S)))
-
-(L2:S "bbb")
-
-;; exponential grammar
-(L2:S "bbbbbbb")
-
-;; L2*: S ::= b
-;;         |  S S A
-;;      A ::= S
-;;         |  epsilon
-(define-parser L2*:S
-  (alt "b"
-       (seq L2*:S L2*:S L2*:A)))
-
-(define-parser L2*:A
-  (alt L2*:S
-       epsilon))
-
-(L2*:S "bbb")
-
-(define-parser SS
-  (alt SS "a"))
-
-;; infinite grammar
-(SS "a")
-
-(define-parser M:A
-  (alt M:B
-       "a"))
-
-(define-parser M:B
-  (alt M:A
-       "b"))
-
-;; infinite grammar #2
-(M:A "b")
-
-;; CME: A ::= B a
-;;      B ::= C b
-;;      C ::= B
-;;         |  A
-;;         |  c
-(define-parser CME:A
-  (seq CME:B "a"))
-
-(define-parser CME:B
-  (seq CME:C "b"))
-
-(define-parser CME:C
-  (alt CME:B
-       CME:A
-       "c"))
-
-(CME:A "cba")
-
-;; CME*: S ::= A
-;;          |  B
-;;       A ::= A a
-;;          |  B
-;;          |  a
-;;       B ::= B b
-;;          |  A
-;;          |  b
-(define-parser CME*:S
-  (alt CME*:A
-       CME*:B))
-
-(define-parser CME*:A
-  (alt (seq CME*:A "a")
-       CME*:B
-       "a"))
-
-(define-parser CME*:B
-  (alt (seq CME*:B "b")
-       CME*:A
-       "b"))
-
-;; non-terminating grammar
-(CME*:S "ab")
-
-;; SICP
-(define-parser noun
-  (alt "student " "professor " "cat " "class "))
-
-(define-parser verb
-  (alt "studies " "lectures " "eats " "sleeps "))
-
-(define-parser article
-  (alt "the " "a " "an "))
-
-(define-parser sentence
-  (seq noun-phrase verb-phrase))
-
-(define-parser verb-phrase
-  (alt (seq verb-phrase prep-phrase)
-       verb))
-
-(define-parser simple-noun-phrase
-  (seq article noun))
-
-(define-parser noun-phrase
-  (alt (seq noun-phrase prep-phrase)
-       simple-noun-phrase))
-
-(define-parser preposition
-  (alt "for " "to " "in " "by " "with "))
-
-(define-parser prep-phrase
-  (seq preposition noun-phrase))
-
-(sentence "the student with the cat sleeps in the class ")
-(sentence "the professor lectures to the student with the cat ")
-(sentence "the professor lectures to the student in the class with the cat ")
+(stream->list (expr "1*2+3*4"))
+(stream->list (expr "9-(5+2)"))
