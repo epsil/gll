@@ -1,135 +1,127 @@
-#! /usr/bin/racket
 #lang racket
+
+;;; Continuation-passing style
 
 (require racket/mpair)
 
-;;; Memoization
+(struct success (val rest) #:transparent)
+(struct failure (rest) #:transparent)
 
-(define (memo cps-fn)
-  (let ((table (mlist)))
-    (lambda (arg (continuation #f))
-      (let* ((results (mlist))
-             (entry (massoc arg table))
-             (continuation
-              (or continuation
-                  (lambda (result)
-                    (when (null? (cdr result))
-                      (set! results (mcons result results)))))))
-        (unless entry
-          (set! entry (mcons arg (mcons '() '())))
-          (set! table (mcons entry table)))
-        (set! entry (mcdr entry))
-        (cond
-         ((null? (mcar entry))
-          ;; first time memoized procedure has been called with arg
-          (set-mcar! entry (mcons continuation (mcar entry)))
-          (cps-fn arg
-                  (lambda (result)
-                    (unless (mmember result (mcdr entry))
-                      (set-mcdr! entry (mcons result (mcdr entry)))
-                      (for ((cont (mcar entry)))
-                           (cont result))))))
-         (else
-          ;; memoized procedure has been called with arg before
-          (set-mcar! entry (mcons continuation (mcar entry)))
-          (for ((result (mcdr entry)))
-               (continuation result))))
-        (unless (null? results)
-          (mlist->list (mreverse! results)))))))
+(define-syntax-rule (delay-parser parser)
+  (lambda args
+    (apply parser args)))
 
-;;; Parser combinators
-
-(define-syntax-rule (define-parser parser body ...)
+(define-syntax-rule (define-parser parser body)
   (define parser
-    (memo
-     (lambda (in c)
-       ((begin body ...)
-        in
-        (lambda (r)
-          (let ((result (car r))
-                (tail (cdr r)))
-            (c (cons (cons 'parser
-                           (if (and (pair? result)
-                                    (member (car result)
-                                            '(seq term)))
-                               (cdr result)
-                               (list result)))
-                     tail)))))))))
+    (make-parser
+     (delay-parser body))))
 
-(define-syntax-rule (term X ...)
+(define (make-parser parser)
+  (lambda (str (cont #f))
+    (if cont
+        (parser str cont)
+        (run-parser parser str))))
+
+(define (run-parser parser str)
+  (let ((results '()))
+    (parser str (lambda (result)
+                  (match result
+                    [(success val "")
+                     (set! results (cons result results))]
+                    [failure failure])))
+    results))
+
+(define (memo fn)
+  (let ((alist (mlist)))
+    (lambda args
+      (match (massoc args alist)
+        [(mcons args result) result]
+        [_ (let* ((result (apply fn args))
+                  (entry (mcons args result)))
+             (set! alist (mcons entry alist))
+             result)]))))
+
+(define (memo-cps fn)
+  (let ((table (mlist)))
+    (define entry-continuations mcar)
+    (define entry-results mcdr)
+    (define (push-continuation! entry cont)
+      (set-mcar! entry (mcons cont (entry-continuations entry))))
+    (define (push-result! entry result)
+      (set-mcdr! entry (mcons result (entry-results entry))))
+    (define (result-subsumed? entry result)
+      (mmember result (entry-results entry)))
+    (define (make-entry)
+      (mcons (mlist) (mlist)))
+    (define (table-ref str)
+      (match (massoc str table)
+        [(mcons str entry) entry]
+        [_ (let ((entry (make-entry)))
+             (set! table (mcons (mcons str entry) table))
+             entry)]))
+    (lambda (str cont)
+      (let ((entry (table-ref str)))
+        (match entry
+          ;; first time memoized procedure has been called with str
+          [(mcons (mlist) (mlist))
+           (push-continuation! entry cont)
+           (fn str (lambda (result)
+                     (unless (result-subsumed? entry result)
+                       (push-result! entry result)
+                       (for ((cont (entry-continuations entry)))
+                            (cont result)))))]
+          ;; memoized procedure has been called with str before
+          [_
+           (push-continuation! entry cont)
+           (for ((result (entry-results entry)))
+                (cont result))])))))
+
+(define succeed
   (memo
-   (lambda (in c)
-     (when (and (pair? in)
-                (member (car in) '(X ...)))
-       (c (cons (list 'term (car in)) (cdr in)))))))
+   (lambda (val)
+     (memo-cps
+      (lambda (str cont)
+        (cont (success val str)))))))
 
-(define-syntax-rule (seq A ...)
+(define string
   (memo
-   (lambda (in c)
-     (let* ((parsers (list A ...))
-            (fn (car parsers))
-            (cont (foldr (lambda (fn c)
-                           (lambda (r)
-                             (let ((result (car r)))
-                               (fn (cdr r)
-                                   (lambda (r)
-                                     (c (cons (append result (list (car r)))
-                                              (cdr r))))))))
-                         c
-                         (cdr parsers))))
-       (fn in (lambda (r)
-                (cont (cons (list 'seq (car r))
-                            (cdr r)))))))))
+   (lambda (match)
+     (memo-cps
+      (lambda (str cont)
+        (let* ((len (min (string-length str) (string-length match)))
+               (head (substring str 0 len))
+               (tail (substring str len)))
+          (if (equal? head match)
+              (cont (success head tail))
+              (cont (failure tail)))))))))
 
-(define-syntax-rule (alt A ...)
+(define (bind p fn)
+  (lambda (str cont)
+    (p str (lambda (result)
+             (match result
+               [(success val rest)
+                ((fn val) rest cont)]
+               [failure
+                (cont failure)])))))
+
+(define seq
   (memo
-   (lambda (in c)
-     (for ((fn (list A ...)))
-          (fn in c)))))
+   (lambda (a b)
+     (memo-cps
+      (bind a (lambda (x)
+                (bind b (lambda (y)
+                          (succeed (list x y))))))))))
 
-(define-syntax-rule (opt A)
-  (alt epsilon A))
+(define alt
+  (memo
+   (lambda (a b)
+     (memo-cps
+      (lambda (str cont)
+        (a str cont)
+        (b str cont))))))
 
-(define-syntax-rule (k* A)
-  (alt epsilon
-       (seq A (k* A))))
+(define-parser s
+  (alt (seq s (string "a"))
+       (string "a")))
 
-;;; Parsers
-
-(define (epsilon in c)
-  (c (cons '() in)))
-
-(define-parser noun
-  (term student professor cat class))
-
-(define-parser verb
-  (term studies lectures eats sleeps))
-
-(define-parser article
-  (term the a an))
-
-(define-parser sentence
-  (seq noun-phrase verb-phrase))
-
-(define-parser verb-phrase
-  (alt (seq verb-phrase prep-phrase)
-       verb))
-
-(define-parser simple-noun-phrase
-  (seq article noun))
-
-(define-parser noun-phrase
-  (alt (seq noun-phrase prep-phrase)
-       simple-noun-phrase))
-
-(define-parser preposition
-  (term for to in by with))
-
-(define-parser prep-phrase
-  (seq preposition noun-phrase))
-
-;;; Tests
-
-(sentence '(the student with the cat sleeps in the class))
-(sentence '(the professor lectures to the student with the cat))
-(sentence '(the professor lectures to the student in the class with the cat))
+(s "aaa")
