@@ -27,7 +27,7 @@
     (parser str (lambda (result)
                   (match result
                     [(success tree "")
-                     (set! results (append results (list result)))]
+                     (set! results (cons result results))]
                     [failure failure])))
     results))
 
@@ -46,7 +46,7 @@
     (define entry-continuations mcar)
     (define entry-results mcdr)
     (define (push-continuation! entry cont)
-      (set-mcar! entry (mappend (entry-continuations entry) (mlist cont))))
+      (set-mcar! entry (mcons cont (entry-continuations entry))))
     (define (push-result! entry result)
       (set-mcdr! entry (mcons result (entry-results entry))))
     (define (result-subsumed? entry result)
@@ -68,12 +68,12 @@
            (fn str (lambda (result)
                      (unless (result-subsumed? entry result)
                        (push-result! entry result)
-                       (for ((cont (mcar entry)))
+                       (for ((cont (entry-continuations entry)))
                             (cont result)))))]
           ;; memoized procedure has been called with str before
           [_
            (push-continuation! entry cont)
-           (for ((result (mcdr entry)))
+           (for ((result (entry-results entry)))
                 (cont result))])))))
 
 (define succeed

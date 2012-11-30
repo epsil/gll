@@ -1,9 +1,14 @@
 Code cleanup:
 
-* Simplify `term`?
+* Add O notation
+* Add Parsing Techniques
+* Rewrite introduction
+* Use proper stack
+* `table-ref`: _
 * Replace `print` with `displayln`
 * memo-cps args . fn
 * consistent formatting wrt. `memo`
+* Simplify `term`?
 * Let `s` be a parser that matches the empty string infinitely many times and let `t` be a terminal parser, for example for the string `"foo"`. Then `(seq s t)` is a parser that will never terminate for some nonparseable input `"bar"`. The first parser produces infinitely many results for the beginning of the string and the second parser always fails for the rest of the string. `s` will never stop producing results because it cannot know that `t` cannot use them. Infinite ambiguity can be curtailed by making `result-subsumed?` inspect the results' tails, but this also affects regular ambiguity.
 
 ----

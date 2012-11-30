@@ -47,7 +47,7 @@
              (lambda (result)
                (match result
                  [(success tree "")
-                  (set! results (append results (list result)))]
+                  (set! results (cons result results))]
                  [failure failure])))
      (compute))))
 
@@ -78,13 +78,13 @@
 
     (define/public (push-stack fn . args)
       (let ((call (mcons fn args)))
-        (set! stack (mappend stack (mlist call)))))
+        (set! stack (mcons call stack))))
 
     (define/public (push fn str cont)
       (define entry-continuations mcar)
       (define entry-results mcdr)
       (define (push-continuation! entry cont)
-        (set-mcar! entry (mappend (entry-continuations entry) (mlist cont))))
+        (set-mcar! entry (mcons cont (entry-continuations entry))))
       (define (push-result! entry result)
         (set-mcdr! entry (mcons result (entry-results entry))))
       (define (result-subsumed? entry result)
@@ -96,29 +96,31 @@
           (match pair
             [(mcons fn memo)
              (match (massoc str memo)
+               ;; parser has been called with str before
                [(mcons str entry) entry]
-               [#f (let ((entry (make-entry)))
-                     (set-mcdr! pair (mcons (mcons str entry) memo))
-                     entry)])]
-            [#f (let* ((entry (make-entry))
-                       (memo (mlist (mcons str entry))))
-                  (set! table (mcons (mcons fn memo) table))
-                  entry)])))
+               ;; first time parser has been called with str
+               [_ (let ((entry (make-entry)))
+                    (set-mcdr! pair (mcons (mcons str entry) memo))
+                    entry)])]
+            ;; first time parser has been called
+            [_ (let* ((entry (make-entry))
+                      (memo (mlist (mcons str entry))))
+                 (set! table (mcons (mcons fn memo) table))
+                 entry)])))
       (let ((entry (table-ref fn str)))
         (match entry
-          ;; first time memoized procedure has been called with str
           [(mcons (mlist) (mlist))
            (push-continuation! entry cont)
+           ;; push the parser on the stack
            (push-stack fn str this
                        (lambda (result)
                          (unless (result-subsumed? entry result)
                            (push-result! entry result)
-                           (for ((cont (mcar entry)))
+                           (for ((cont (entry-continuations entry)))
                                 (cont result)))))]
-          ;; memoized procedure has been called with str before
           [_
            (push-continuation! entry cont)
-           (for ((result (mcdr entry)))
+           (for ((result (entry-results entry)))
                 (cont result))])))
 
     (define/public (run)
@@ -199,16 +201,16 @@
 
 (define-parser expr
   (alt (red (seq expr (string "+") term)
-            (lambda (a _ b) (+ a b)))
+            (lambda (x _ y) (+ x y)))
        (red (seq expr (string "-") term)
-            (lambda (a _ b) (- a b)))
+            (lambda (x _ y) (- x y)))
        term))
 
 (define-parser term
   (alt (red (seq term (string "*") factor)
-            (lambda (a _ b) (* a b)))
+            (lambda (x _ y) (* x y)))
        (red (seq term (string "/") factor)
-            (lambda (a _ b) (/ a b)))
+            (lambda (x _ y) (/ x y)))
        factor))
 
 (define-parser factor
