@@ -4,8 +4,8 @@
 
 (require racket/mpair)
 
-(struct success (tree tail) #:transparent)
-(struct failure (tail) #:transparent)
+(struct success (val rest) #:transparent)
+(struct failure (rest) #:transparent)
 
 (define-syntax-rule (delay-parser parser)
   (lambda args
@@ -27,13 +27,10 @@
 
 (define succeed
   (memo
-   (lambda (str)
-     (success '() str))))
-
-(define fail
-  (memo
-   (lambda (str)
-     (failure str))))
+   (lambda (val)
+     (memo
+      (lambda (str)
+        (success val str))))))
 
 (define string
   (memo
@@ -47,18 +44,20 @@
               (success head tail)
               (failure str))))))))
 
+(define (bind p fn)
+  (lambda (str)
+    (match (p str)
+      [(success val rest)
+       ((fn val) rest)]
+      [failure failure])))
+
 (define seq
   (memo
    (lambda (a b)
      (memo
-      (lambda (str)
-        (match (a str)
-          [(success tree1 tail1)
-           (match (b tail1)
-             [(success tree2 tail2)
-              (success (list tree1 tree2) tail2)]
-             [failure failure])]
-          [failure failure]))))))
+      (bind a (lambda (x)
+                (bind b (lambda (y)
+                          (succeed (list x y))))))))))
 
 (define alt
   (memo
@@ -67,11 +66,8 @@
       (lambda (str)
         (let ((result (a str)))
           (match result
-            [(success tree tail) result]
+            [(success val rest) result]
             [failure (b str)])))))))
-
-(define (opt parser)
-  (alt parser succeed))
 
 (define-parser article
   (alt (string "the ")

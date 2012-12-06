@@ -5,8 +5,8 @@
 (require racket/mpair)
 (require racket/stream)
 
-(struct success (tree tail) #:transparent)
-(struct failure (tail) #:transparent)
+(struct success (val rest) #:transparent)
+(struct failure (rest) #:transparent)
 
 (define-syntax-rule (delay-parser parser)
   (lambda args
@@ -46,7 +46,7 @@
      (parser str tramp
              (lambda (result)
                (match result
-                 [(success tree "")
+                 [(success val "")
                   (set! results (cons result results))]
                  [failure failure])))
      (compute))))
@@ -127,11 +127,11 @@
       (do () ((not (has-next?)))
         (step)))))
 
-(define (succeed str tramp cont)
-  (cont (success '() str)))
-
-(define (fail str tramp cont)
-  (cont (failure str)))
+(define succeed
+  (memo
+   (lambda (val)
+     (lambda (str tramp cont)
+       (cont (success val str))))))
 
 (define string
   (memo
@@ -156,24 +156,24 @@
             (cont (success head tail)))]
          [_ (cont (failure str))])))))
 
+(define (bind p fn)
+  (lambda (str tramp cont)
+    (p str tramp
+       (lambda (result)
+         (match result
+           [(success val rest)
+            ((fn val) rest tramp cont)]
+           [failure
+            (cont failure)])))))
+
 (define seq
   (memo
    (lambda parsers
      (define (seq2 b a)
-       (lambda (str tramp cont)
-         (a str tramp
-            (lambda (result)
-              (match result
-                [(success tree1 tail1)
-                 (b tail1 tramp
-                    (lambda (result)
-                      (match result
-                        [(success tree2 tail2)
-                         (cont (success (append tree1 (list tree2))
-                                        tail2))]
-                        [failure (cont failure)])))]
-                [failure (cont failure)])))))
-     (foldl seq2 succeed parsers))))
+       (bind a (lambda (x)
+                 (bind b (lambda (y)
+                           (succeed (append x (list y))))))))
+     (foldl seq2 (succeed '()) parsers))))
 
 (define alt
   (memo
@@ -182,22 +182,13 @@
        (for ((fn parsers))
             (send tramp push fn str cont))))))
 
-(define (opt parser)
-  (alt parser succeed))
-
 (define red
   (memo
-   (lambda (parser fn)
-     (lambda (str tramp cont)
-       (parser str tramp
-               (lambda (result)
-                 (match result
-                   [(success (list tree ...) tail)
-                    (cont (success (apply fn tree) tail))]
-                   [(success tree tail)
-                    (cont (success (fn tree) tail))]
-                   [failure
-                    (cont failure)])))))))
+   (lambda (p fn)
+     (bind p (lambda (val)
+               (match val
+                 [(list val ...) (succeed (apply fn val))]
+                 [_ (succeed (fn val))]))))))
 
 (define-parser expr
   (alt (red (seq expr (string "+") term)

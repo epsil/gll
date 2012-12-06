@@ -4,8 +4,8 @@
 
 (require racket/mpair)
 
-(struct success (tree tail) #:transparent)
-(struct failure (tail) #:transparent)
+(struct success (val rest) #:transparent)
+(struct failure (rest) #:transparent)
 
 (define-syntax-rule (delay-parser parser)
   (lambda args
@@ -26,7 +26,7 @@
   (let ((results '()))
     (parser str (lambda (result)
                   (match result
-                    [(success tree "")
+                    [(success val "")
                      (set! results (cons result results))]
                     [failure failure])))
     results))
@@ -77,14 +77,11 @@
                 (cont result))])))))
 
 (define succeed
-  (memo-cps
-   (lambda (str cont)
-     (cont (success '() str)))))
-
-(define fail
-  (memo-cps
-   (lambda (str cont)
-     (cont (failure str)))))
+  (memo
+   (lambda (val)
+     (memo-cps
+      (lambda (str cont)
+        (cont (success val str)))))))
 
 (define string
   (memo
@@ -98,21 +95,22 @@
               (cont (success head tail))
               (cont (failure tail)))))))))
 
+(define (bind p fn)
+  (lambda (str cont)
+    (p str (lambda (result)
+             (match result
+               [(success val rest)
+                ((fn val) rest cont)]
+               [failure
+                (cont failure)])))))
+
 (define seq
   (memo
    (lambda (a b)
      (memo-cps
-      (lambda (str cont)
-        (a str (lambda (result)
-                 (match result
-                   [(success tree1 tail1)
-                    (b tail1 (lambda (result)
-                               (match result
-                                 [(success tree2 tail2)
-                                  (cont (success (list tree1 tree2)
-                                                 tail2))]
-                                 [failure (cont failure)])))]
-                   [failure (cont failure)]))))))))
+      (bind a (lambda (x)
+                (bind b (lambda (y)
+                          (succeed (list x y))))))))))
 
 (define alt
   (memo
@@ -121,9 +119,6 @@
       (lambda (str cont)
         (a str cont)
         (b str cont))))))
-
-(define (opt parser)
-  (alt parser succeed))
 
 (define-parser s
   (alt (seq s (string "a"))
