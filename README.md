@@ -71,8 +71,9 @@ one at a time and returned as a lazy stream:
 #<stream>
 ```
 
-When optimized, efficiency is O(n) for LL(1) grammars and O(n^3) in
-the worst case. (See the references for details.)
+The efficiency is O(n^3) in the worst case. With further
+optimizations, O(n) is achievable for LL(1) grammars. See the
+references for details.
 
 The article is organized into several stages, leading up to a complete
 interpreter for arithmetic expressions. To get there, the parsers will
@@ -280,7 +281,7 @@ parser `b` and bind the value-part of the result to `y`. Finally,
 create a combined parse result from `x` and `y`." If any of the
 parsers fail, then `bind` stops; only successful results are passed
 down the chain. Thus, `bind` frees us from the burden of repeatedly
-doing pattern matching and handling failing results.
+doing pattern matching and discarding failing results.
 
 Let us now look at a complete example. The following implements a
 simple linguistic grammar taken from
@@ -399,9 +400,10 @@ One solution is to wrap the code in a function:
      arg)))
 ```
 
-To make things more convenient, we can create a `delay-parser` macro
-which automatically delays the code for us, as well as a
-`define-parser` macro for delayed parser definitions.
+Now the code is evaluated not when the parser is defined, but when it
+is invoked. To make things more convenient, we can create a
+`delay-parser` macro which automatically delays the code for us, as
+well as a `define-parser` macro for delayed parser definitions.
 
 ```Scheme
 (define-syntax-rule (delay-parser parser)
@@ -1235,8 +1237,9 @@ This concludes the article. Several improvements are possible from
 here. For example, one could specify a monadic interface for composing
 parsers. Racket's macro system could be used to define an even simpler
 DSL. Branches in the grammar could be parallelized by using a monitor
-for the trampoline. Finally, the trampoline could be optimized with a
-graph-structured stack (Spiewak).
+for the trampoline. Finally, one can optimize the combinators by
+adorning the parsers with metadata for calculating the FIRST and
+FOLLOW sets (Spiewak).
 
 The code can be ported to an object-oriented language by creating a
 `Parser` interface and composing parser objects. Continuations can be
