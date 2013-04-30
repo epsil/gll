@@ -71,9 +71,11 @@ one at a time and returned as a lazy stream:
 #<stream>
 ```
 
-The efficiency is O(n^3) in the worst case. With further
-optimizations, O(n) is achievable for LL(1) grammars. See the
-references for details.
+The worst-case efficiency of the parser in this article is O(n^4),
+but with more efficient data structures, O(n^3) is achievable.
+Furthermore, by adorning the parsers with additional metadata,
+LL(1) grammars can be parsed in O(n) time. See the references for
+details on optimization.
 
 The article is organized into several stages, leading up to a complete
 interpreter for arithmetic expressions. To get there, the parsers will
