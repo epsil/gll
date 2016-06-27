@@ -71,38 +71,34 @@ one at a time and returned as a lazy stream:
 #<stream>
 ```
 
-The worst-case efficiency of the parser in this article is O(n^4),
-but with more efficient data structures, O(n^3) is achievable.
-Furthermore, by adorning the parsers with additional metadata,
-LL(1) grammars can be parsed in O(n) time. See the references for
-details on optimization.
+The worst-case efficiency of the parser in this article is
+*O*(*n*<sup>4</sup>), but with more efficient data structures,
+*O*(*n*<sup>3</sup>) is achievable. Furthermore, by adorning the
+parsers with additional metadata, LL(1) grammars can be parsed in
+*O*(*n*) time. See the references for details on optimization.
 
 The article is organized into several stages, leading up to a complete
 interpreter for arithmetic expressions. To get there, the parsers will
 be rewritten multiple times:
 
-1. First, we will write a simple, top-down combinator framework,
-   implementing things in the *conventional* way. This won't handle
-   left-recursive grammars in any form, but introduces a simple syntax
-   for composing parsers.
-
-2. Next, we will rewrite the parsers to *continuation-passing style*.
-   Although functionally equivalent to the previous version, the
-   continuations make the code more flexible and set the stage for
-   implementing general parsers.
-
-3. We will now add support for left-recursive grammars. This is done
-   by *memoizing* parse results and continuations, so that nothing is
-   computed more than once. This is the most important step, and we
-   will study it in some detail to develop our intuition.
-
-4. To optimize the code, we will add a *trampoline* to store parse
-   results and dispatch function calls. The trampoline is a shared
-   data structure passed down from one parser to another.
-
-5. Now we have the wherewithal to implement a lazy parse process. The
-   parsers will return a *stream* of parse results, computing the
-   results as they are requested.
+1.  First, we will write a simple, top-down combinator framework,
+    implementing things in the *conventional* way. This won't handle
+    left-recursive grammars in any form, but introduces a simple
+    syntax for composing parsers.
+2.  Next, we will rewrite the parsers to *continuation-passing style*.
+    Although functionally equivalent to the previous version, the
+    continuations make the code more flexible and set the stage for
+    implementing general parsers.
+3.  We will now add support for left-recursive grammars. This is done
+    by *memoizing* parse results and continuations, so that nothing is
+    computed more than once. This is the most important step, and we
+    will study it in some detail to develop our intuition.
+4.  To optimize the code, we will add a *trampoline* to store parse
+    results and dispatch function calls. The trampoline is a shared
+    data structure passed down from one parser to another.
+5.  Now we have the wherewithal to implement a lazy parse process. The
+    parsers will return a *stream* of parse results, computing the
+    results as they are requested.
 
 The article aims to be easy to understand, but is necessarily of some
 length. If you are familiar with parser combinators, you can skim
@@ -1252,29 +1248,29 @@ syntax.
 
 For more information, follow the references:
 
-* [Memoization in Top-Down Parsing](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000),
-  Mark Johnson, Brown University, 1995. Published in *Computational
-  Linguistics*, Volume 21, Number 3. Covers regular memoization,
-  continuation-passing style, and memoization of continuation-passing
-  style functions.
-* [Generalized Parser Combinators](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf),
-  Daniel Spiewak, University of Wisconsin, 2010. Implemented as the
-  [gll-combinators](https://github.com/djspiewak/gll-combinators)
-  Scala library, using continuation-passing style and trampolined
-  dispatch. Offers a very accessible introduction to the GLL
-  algorithm.
-* [Parsing Techniques: A Practical Guide](http://dickgrune.com/Books/PTAPG_2nd_Edition/)
-  (Second Edition), Dick Grune and Ceriel J. H. Jacobs,
-  Springer, 2008. Chapter 11 contains a richly illustrated
-  description of generalized LL parsing.
-* [GLL Parsing](http://ldta.info/2009/ldta2009proceedings.pdf),
-  Adrian Johnstone and Elizabeth Scott, University of London, 2009.
-  Published in *Proceedings of LDTA*. Explains the GLL algorithm in
-  abstract terms.
-* [Modelling GLL Parser Implementations](http://link.springer.com/chapter/10.1007%2F978-3-642-19440-5_4),
-  Adrian Johnstone and Elizabeth Scott, University of London, 2011.
-  Lecture Notes in *Computer Science*, Volume 6563. Models an
-  implementation of the GLL algorithm in a theoretical language.
+-   [Memoization in Top-Down Parsing](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000),
+    Mark Johnson, Brown University, 1995. Published in *Computational
+    Linguistics*, Volume 21, Number 3. Covers regular memoization,
+    continuation-passing style, and memoization of
+    continuation-passing style functions.
+-   [Generalized Parser Combinators](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf),
+    Daniel Spiewak, University of Wisconsin, 2010. Implemented as the
+    [gll-combinators](https://github.com/djspiewak/gll-combinators)
+    Scala library, using continuation-passing style and trampolined
+    dispatch. Offers a very accessible introduction to the GLL
+    algorithm.
+-   [Parsing Techniques: A Practical Guide](http://dickgrune.com/Books/PTAPG_2nd_Edition/)
+    (Second Edition), Dick Grune and Ceriel J. H. Jacobs,
+    Springer, 2008. Chapter 11 contains a richly illustrated
+    description of generalized LL parsing.
+-   [GLL Parsing](http://ldta.info/2009/ldta2009proceedings.pdf),
+    Adrian Johnstone and Elizabeth Scott, University of London, 2009.
+    Published in *Proceedings of LDTA*. Explains the GLL algorithm in
+    abstract terms.
+-   [Modelling GLL Parser Implementations](http://link.springer.com/chapter/10.1007%2F978-3-642-19440-5_4),
+    Adrian Johnstone and Elizabeth Scott, University of London, 2011.
+    Lecture Notes in *Computer Science*, Volume 6563. Models an
+    implementation of the GLL algorithm in a theoretical language.
 
 Comments? Suggestions? Post them at the
 [bug tracker](https://github.com/epsil/gll/issues)!
