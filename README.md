@@ -5,7 +5,7 @@ This article explains how to implement a general parser combinator
 framework which handles left-recursive and ambiguous grammars. It is
 implemented in [Racket](http://www.racket-lang.org/), a dialect of
 Scheme. However, the principles are not specific to Racket and could
-expressed in any language; porting is outlined at the end of the
+be expressed in any language; porting is outlined at the end of the
 article. All the code is available from
 [GitHub](https://github.com/epsil/gll):
 
