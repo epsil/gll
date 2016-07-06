@@ -274,7 +274,7 @@ We can now define `seq` in terms of `bind`:
 ```
 
 This terse definition can be read as: "Invoke the first parser `a` and
-bind the value-part of the result to `x`. Then invoke the the second
+bind the value-part of the result to `x`. Then invoke the second
 parser `b` and bind the value-part of the result to `y`. Finally,
 create a combined parse result from `x` and `y`." If any of the
 parsers fail, then `bind` stops; only successful results are passed
