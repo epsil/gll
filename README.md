@@ -1,5 +1,5 @@
-General Parser Combinators in Racket
-====================================
+[General Parser Combinators in Racket](https://epsil.github.io/gll/)
+====================================================================
 
 This article explains how to implement a general parser combinator
 framework which handles left-recursive and ambiguous grammars. It is
@@ -7,17 +7,25 @@ implemented in [Racket](http://www.racket-lang.org/), a dialect of
 Scheme. However, the principles are not specific to Racket and could
 be expressed in any language; porting is outlined at the end of the
 article. All the code is available from
-[GitHub](https://github.com/epsil/gll):
+[GitHub](https://github.com/epsil/gll). You can
+[download a Zip file](https://github.com/epsil/gll/archive/master.zip),
+or you can clone the repository with the following command:
 
 ```
 git clone https://github.com/epsil/gll.git
 ```
 
 The repository also includes the full text of the article in
-[GitHub Flavored Markdown](http://github.github.com/github-flavored-markdown/).
+[Markdown](https://raw.githubusercontent.com/epsil/gll/master/README.md)
+([GFM flavor](https://help.github.com/categories/writing-on-github/)).
+A [HTML version](https://epsil.github.io/gll/) of the article,
+readable on both large and small screens, is available from
+<https://epsil.github.io/gll/>.
+
 I welcome suggestions and improvements! Feel free to open an issue on
-the [bug tracker](https://github.com/epsil/gll/issues), or to fork the
-repository. You can also contact me, Vegard Øye, at
+the [bug tracker](https://github.com/epsil/gll/issues), or to
+[fork the repository](https://github.com/epsil/gll). You can also
+contact me, Vegard Øye, at
 `vegard (underline) oye (at) hotmail (dot) com`.
 
 The article aims to be an accessible introduction to the ideas found
@@ -27,7 +35,7 @@ by Mark Johnson and
 [Generalized Parser Combinators](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf)
 by Daniel Spiewak. If you are interested in the topic, I especially
 recommend you to read Spiewak's paper. It is very good. Other reading
-suggestions are provided at the end.
+suggestions are provided [at the end](#further-reading).
 
 Introduction
 ------------
@@ -72,20 +80,22 @@ one at a time and returned as a lazy stream:
 ```
 
 The worst-case efficiency of the parser in this article is
-*O*(*n*<sup>4</sup>), but with more efficient data structures,
-*O*(*n*<sup>3</sup>) is achievable. Furthermore, by adorning the
-parsers with additional metadata, LL(1) grammars can be parsed in
-*O*(*n*) time. See the references for details on optimization.
+*O*(*n*^4^), but with more efficient data structures, *O*(*n*^3^) is
+achievable. Furthermore, by adorning the parsers with additional
+metadata, LL(1) grammars can be parsed in *O*(*n*) time. See the
+[references](#further-reading) for details on optimization.
 
 The article is organized into several stages, leading up to a complete
 interpreter for arithmetic expressions. To get there, the parsers will
 be rewritten multiple times:
 
-1.  First, we will write a simple, top-down combinator framework,
+1.  First, we will write a simple,
+    [top-down combinator framework](#simple-parser-combinators),
     implementing things in the *conventional* way. This won't handle
     left-recursive grammars in any form, but introduces a simple
     syntax for composing parsers.
-2.  Next, we will rewrite the parsers to *continuation-passing style*.
+2.  Next, we will rewrite the parsers to
+    *[continuation-passing style](#continuation-passing-style)*.
     Although functionally equivalent to the previous version, the
     continuations make the code more flexible and set the stage for
     implementing general parsers.
@@ -93,9 +103,9 @@ be rewritten multiple times:
     by *memoizing* parse results and continuations, so that nothing is
     computed more than once. This is the most important step, and we
     will study it in some detail to develop our intuition.
-4.  To optimize the code, we will add a *trampoline* to store parse
-    results and dispatch function calls. The trampoline is a shared
-    data structure passed down from one parser to another.
+4.  To optimize the code, we will add a *[trampoline](#trampoline)* to
+    store parse results and dispatch function calls. The trampoline is
+    a shared data structure passed down from one parser to another.
 5.  Now we have the wherewithal to implement a lazy parse process. The
     parsers will return a *stream* of parse results, computing the
     results as they are requested.
@@ -103,8 +113,8 @@ be rewritten multiple times:
 The article aims to be easy to understand, but is necessarily of some
 length. If you are familiar with parser combinators, you can skim
 through the first sections. The key ideas are introduced in the
-section on continuation-passing style. The rest of the text deals with
-optimization of those ideas.
+section on [continuation-passing style](#continuation-passing-style).
+The rest of the text deals with optimization of those ideas.
 
 Simple parser combinators
 -------------------------
@@ -240,7 +250,7 @@ parser, we pass its remainder to the next parser with `(b rest1)`. If
 it also succeeds, we return a combined parse result. In all other
 cases, we return failure. (For simplicity, the `alt` and `seq`
 combinators take exactly two arguments; later we will write general
-versions accepting any number of arguments.)
+versions accepting [any number of arguments](#final-improvements).)
 
 However, because we are going to rewrite the parsers several times, it
 will be beneficial to express this combinator in a more abstract way.
@@ -283,7 +293,7 @@ doing pattern matching and discarding failing results.
 
 Let us now look at a complete example. The following implements a
 simple linguistic grammar taken from
-*[SICP](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618)*:
+*[Structure and Interpretation of Computer Programs](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618)*:
 
 ```Scheme
 (define article
@@ -319,8 +329,8 @@ We can parse a sentence with:
 ```
 
 For the time being, the parse result isn't too informative; later we
-will define a combinator for modifying it. In any case, we can
-definitely see that there is parsing going on!
+will define a [combinator for modifying it](#final-improvements). In
+any case, we can definitely see that there is parsing going on!
 
 Memoization
 -----------
@@ -1248,6 +1258,10 @@ syntax.
 
 For more information, follow the references:
 
+-   [Structure and Interpretation of Computer Programs](https://mitpress.mit.edu/sicp/full-text/book/book.html),
+    second edition, Harold Abelson and Gerald Jay Sussman, The
+    Massachusetts Institute of Technology, 1996.
+    [Unofficial HTML5 version](http://sarabander.github.io/sicp/).
 -   [Memoization in Top-Down Parsing](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000),
     Mark Johnson, Brown University, 1995. Published in *Computational
     Linguistics*, Volume 21, Number 3. Covers regular memoization,
@@ -1275,6 +1289,6 @@ For more information, follow the references:
 Comments? Suggestions? Post them at the
 [bug tracker](https://github.com/epsil/gll/issues)!
 
----
+* * * * *
 
-[Vegard Øye](https://github.com/epsil) | 2012
+<i class="fa fa-github"></i> [Vegard Øye](https://github.com/epsil) | 2012
