@@ -2,12 +2,12 @@
 ====================================================================
 
 This article explains how to implement a general parser combinator
-framework which handles left-recursive and ambiguous grammars. It is
-implemented in [Racket](http://www.racket-lang.org/), a dialect of
-Scheme. However, the principles are not specific to Racket and could
-be expressed in any language; porting is outlined at the end of the
-article. All the code is available from
-[GitHub](https://github.com/epsil/gll). You can
+framework which handles left-recursive and ambiguous grammars. A
+[HTML version](https://epsil.github.io/gll/), readable on both large
+and small screens, is available from <https://epsil.github.io/gll/>.
+
+All the code is shared on [GitHub](https://github.com/epsil/gll).
+You can
 [download a Zip file](https://github.com/epsil/gll/archive/master.zip),
 or you can clone the repository with the following command:
 
@@ -18,10 +18,6 @@ git clone https://github.com/epsil/gll.git
 The repository also includes the full text of the article in
 [Markdown](https://raw.githubusercontent.com/epsil/gll/master/README.md)
 ([GFM flavor](https://help.github.com/categories/writing-on-github/)).
-A [HTML version](https://epsil.github.io/gll/) of the article,
-readable on both large and small screens, is available from
-<https://epsil.github.io/gll/>.
-
 I welcome suggestions and improvements! Feel free to open an issue on
 the [bug tracker](https://github.com/epsil/gll/issues), or to
 [fork the repository](https://github.com/epsil/gll). You can also
@@ -36,6 +32,11 @@ by Mark Johnson and
 by Daniel Spiewak. If you are interested in the topic, I especially
 recommend you to read Spiewak's paper. It is very good. Other reading
 suggestions are provided [at the end](#further-reading).
+
+The framework is implemented in [Racket](http://www.racket-lang.org/),
+a variant of Scheme, which is a dialect of Lisp. However, the
+principles are not specific to Racket and could be expressed in any
+language; porting is outlined at the end of the article.
 
 Introduction
 ------------
