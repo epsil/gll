@@ -6,8 +6,9 @@ framework which handles left-recursive and ambiguous grammars. A
 [HTML version](https://epsil.github.io/gll/), readable on both large
 and small screens, is available from <https://epsil.github.io/gll/>.
 
-All the code is shared on [GitHub](https://github.com/epsil/gll).
-You can
+All the code is released freely on
+[GitHub](https://github.com/epsil/gll) under the
+[MIT License](LICENSE). You can
 [download a Zip file](https://github.com/epsil/gll/archive/master.zip),
 or you can clone the repository with the following command:
 
@@ -1290,6 +1291,6 @@ For more information, follow the references:
 Comments? Suggestions? Post them at the
 [bug tracker](https://github.com/epsil/gll/issues)!
 
-* * * * *
+[![](shield.svg)](LICENSE)
 
 <i class="fa fa-github"></i> [Vegard Øye](https://github.com/epsil) | 2012
