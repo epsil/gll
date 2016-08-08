@@ -27,9 +27,9 @@ contact me, Vegard Øye, at
 
 The article aims to be an accessible introduction to the ideas found
 in the papers
-[Memoization in Top-Down Parsing](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000)
+["Memoization in Top-Down Parsing"](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000)
 by Mark Johnson and
-[Generalized Parser Combinators](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf)
+["Generalized Parser Combinators"](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf)
 by Daniel Spiewak. If you are interested in the topic, I especially
 recommend you to read Spiewak's paper. It is very good. Other reading
 suggestions are provided [at the end](#further-reading).
@@ -295,7 +295,7 @@ doing pattern matching and discarding failing results.
 
 Let us now look at a complete example. The following implements a
 simple linguistic grammar taken from
-*[Structure and Interpretation of Computer Programs](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618)*:
+[*Structure and Interpretation of Computer Programs*](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618):
 
 ```Scheme
 (define article
@@ -350,7 +350,7 @@ it finds an output value, it just returns that. If not, then it calls
 the original function, saves its output in the table, and returns the
 output. Future calls with the same arguments will return the memoized
 value. The following is loosely adapted from
-*[SICP](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-22.html#%_thm_3.27)*:
+[*SICP*](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-22.html#%_thm_3.27):
 
 ```Scheme
 (define (memo fn)
@@ -489,7 +489,7 @@ functions all the way down to the level of string matching. It will
 either return a single result or no result at all.
 
 Not all grammars are this simple, however. Once we introduce
-recursion, there is not guarantee that the grammar will translate into
+recursion, there is no guarantee that the grammar will translate into
 a terminating program, even if the grammar is well-defined.
 Furthermore, grammars can be ambiguous: with several matching
 alternatives, a string can parsed in multiple, equally valid ways. For
@@ -1260,30 +1260,30 @@ syntax.
 
 For more information, follow the references:
 
--   [Structure and Interpretation of Computer Programs](https://mitpress.mit.edu/sicp/full-text/book/book.html),
+-   [*Structure and Interpretation of Computer Programs*](https://mitpress.mit.edu/sicp/full-text/book/book.html),
     second edition, Harold Abelson and Gerald Jay Sussman, The
     Massachusetts Institute of Technology, 1996.
     [Unofficial HTML5 version](http://sarabander.github.io/sicp/).
--   [Memoization in Top-Down Parsing](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000),
+-   ["Memoization in Top-Down Parsing"](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000),
     Mark Johnson, Brown University, 1995. Published in *Computational
     Linguistics*, Volume 21, Number 3. Covers regular memoization,
     continuation-passing style, and memoization of
     continuation-passing style functions.
--   [Generalized Parser Combinators](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf),
+-   ["Generalized Parser Combinators"](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf),
     Daniel Spiewak, University of Wisconsin, 2010. Implemented as the
     [gll-combinators](https://github.com/djspiewak/gll-combinators)
     Scala library, using continuation-passing style and trampolined
     dispatch. Offers a very accessible introduction to the GLL
     algorithm.
--   [Parsing Techniques: A Practical Guide](http://dickgrune.com/Books/PTAPG_2nd_Edition/)
+-   [*Parsing Techniques: A Practical Guide*](http://dickgrune.com/Books/PTAPG_2nd_Edition/)
     (Second Edition), Dick Grune and Ceriel J. H. Jacobs,
     Springer, 2008. Chapter 11 contains a richly illustrated
     description of generalized LL parsing.
--   [GLL Parsing](http://ldta.info/2009/ldta2009proceedings.pdf),
+-   ["GLL Parsing"](http://ldta.info/2009/ldta2009proceedings.pdf),
     Adrian Johnstone and Elizabeth Scott, University of London, 2009.
     Published in *Proceedings of LDTA*. Explains the GLL algorithm in
     abstract terms.
--   [Modelling GLL Parser Implementations](http://link.springer.com/chapter/10.1007%2F978-3-642-19440-5_4),
+-   ["Modelling GLL Parser Implementations"](http://link.springer.com/chapter/10.1007%2F978-3-642-19440-5_4),
     Adrian Johnstone and Elizabeth Scott, University of London, 2011.
     Lecture Notes in *Computer Science*, Volume 6563. Models an
     implementation of the GLL algorithm in a theoretical language.
