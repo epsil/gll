@@ -889,7 +889,7 @@ The code can be ported to an object-oriented language by creating a `Parser` int
 
 For more information, follow the references:
 
--   [*Structure and Interpretation of Computer Programs*](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618) (HTML), second edition, Harold Abelson and Gerald Jay Sussman, The Massachusetts Institute of Technology, 1996. The example grammar is from section 4.3.2, "[Examples of Nondeterministic Programs: Parsing natural language](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618)", while the memoization wrapper is outlined in exercise 3.27 in section 3.3.3, "[Representing Tables](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-22.html#%_thm_3.27)". Note that an updated and [unofficial HTML5 version](http://sarabander.github.io/sicp/) of the book offers a vastly improved reading experience on modern devices. {#abelson96-sicp}
+-   [*Structure and Interpretation of Computer Programs*](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618) (HTML), second edition, Harold Abelson and Gerald Jay Sussman, The Massachusetts Institute of Technology, 1996. The example grammar is from section 4.3.2, "[Examples of Nondeterministic Programs: Parsing natural language](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-28.html#%_sec_Temp_618)", while the memoization wrapper is outlined in exercise 3.27 from section 3.3.3, "[Representing Tables](http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-22.html#%_thm_3.27)". Note that an updated and [unofficial HTML5 version](http://sarabander.github.io/sicp/) of the book offers a vastly improved reading experience on modern devices. {#abelson96-sicp}
 -   "[Memoization in Top-Down Parsing](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.3000)" (PDF), Mark Johnson, Brown University, 1995. Published in *Computational Linguistics*, Volume 21, Number 3. Covers regular memoization, continuation-passing style, and memoization of continuation-passing style functions. {#johnson95-memoization}
 -   "[Generalized Parser Combinators](http://www.cs.uwm.edu/~dspiewak/papers/generalized-parser-combinators.pdf)" (PDF), Daniel Spiewak, University of Wisconsin, 2010. Implemented as the [gll-combinators](https://github.com/djspiewak/gll-combinators) Scala library, using continuation-passing style and trampolined dispatch. Offers a very accessible introduction to the GLL algorithm. {#spiewak10-generalized}
 -   [*Parsing Techniques: A Practical Guide*](http://dickgrune.com/Books/PTAPG_2nd_Edition/), second edition, Dick Grune and Ceriel J. H. Jacobs, Springer, 2008. Chapter 11 contains a richly illustrated description of generalized LL parsing. {#grune08-parsing}
@@ -901,3 +901,16 @@ Comments? Suggestions? Post them at the [bug tracker](https://github.com/epsil/g
 [![](shield.svg)](LICENSE)
 
 <i class="fa fa-github"></i> [Vegard Øye](https://github.com/epsil) | 2012
+
+<!-- Abbreviations -->
+
+*[MIT]: Massachusetts Institute of Technology
+*[LL]: Left-to-right Left-most derivation
+*[SICP]: Structure and Interpretation of Computer Programs
+*[CPS]: Continuation-Passing Style
+*[DSL]: Domain-Specific Language
+*[HTML]: HyperText Markup Language
+*[HTML5]: HyperText Markup Language version 5
+*[PDF]: Portable Document Format
+*[GLL]: Generalized LL
+*[LDTA]: Language Descriptions, Tools and Applications
