@@ -17,7 +17,7 @@ git clone https://github.com/epsil/gll.git
 
 The article can be **read** at <https://epsil.github.io/gll/>,
 although the repository also includes the complete text in
-[Markdown format](gll.md)
+[Markdown format](article/index.md)
 ([Pandoc flavor](http://pandoc.org/MANUAL.html#pandocs-markdown)).
 I welcome suggestions and improvements! Feel free to open an issue on
 the [bug tracker](https://github.com/epsil/gll/issues), or to
